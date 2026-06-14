@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsScene,
     QGraphicsView,
+    QMenu,
 )
 
 from .models import ConnectionModel, GraphModel, NodeDefinition, NodeModel, PortDefinition
@@ -411,9 +412,38 @@ class NodeItem(QGraphicsObject):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        was_drag_started = self._drag_started
+        super().mouseReleaseEvent(event)
+        scene = self.scene()
+        if isinstance(scene, NodeScene) and event.button() == Qt.LeftButton:
+            if was_drag_started:
+                scene.node_drag_finished.emit(self, event.screenPos())
+            elif self.isSelected():
+                scene.selection_activated.emit(scene.selected_node_items())
         self._press_scene_pos = None
         self._drag_started = False
-        super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        scene = self.scene()
+        if not isinstance(scene, NodeScene):
+            super().contextMenuEvent(event)
+            return
+
+        if not self.isSelected():
+            scene.clearSelection()
+            self.setSelected(True)
+
+        selected_nodes = scene.selected_node_items()
+        delete_label = "Delete Selected" if len(selected_nodes) > 1 else "Delete"
+
+        menu = QMenu()
+        delete_action = menu.addAction(delete_label)
+        chosen_action = menu.exec(event.screenPos())
+        if chosen_action is delete_action:
+            scene.delete_selected()
+            event.accept()
+            return
+        super().contextMenuEvent(event)
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
@@ -432,6 +462,8 @@ class NodeScene(QGraphicsScene):
     error_message = Signal(str)
     project_dirty = Signal()
     node_selected = Signal(object)
+    selection_activated = Signal(object)
+    node_drag_finished = Signal(object, object)
 
     def __init__(self, catalog: dict[str, NodeDefinition]) -> None:
         super().__init__()
@@ -653,19 +685,34 @@ class NodeScene(QGraphicsScene):
         if emit_dirty:
             self.project_dirty.emit()
 
+    def remove_nodes(self, node_items: list[NodeItem], emit_dirty: bool = True) -> bool:
+        removed_any = False
+        seen_node_ids: set[str] = set()
+        for node_item in node_items:
+            node_id = node_item.model.node_id
+            if node_id in seen_node_ids or node_id not in self.node_items:
+                continue
+            seen_node_ids.add(node_id)
+            for port in node_item.all_ports():
+                for connection in list(port.connections):
+                    self.remove_connection(connection, emit_dirty=False)
+            self.node_items.pop(node_id, None)
+            self.removeItem(node_item)
+            removed_any = True
+
+        if removed_any:
+            if emit_dirty:
+                self.project_dirty.emit()
+            self._emit_selected_node()
+        return removed_any
+
     def delete_selected(self) -> None:
         removed_any = False
         for item in list(self.selectedItems()):
             if isinstance(item, ConnectionItem):
                 self.remove_connection(item, emit_dirty=False)
                 removed_any = True
-            elif isinstance(item, NodeItem):
-                for port in item.all_ports():
-                    for connection in list(port.connections):
-                        self.remove_connection(connection, emit_dirty=False)
-                self.node_items.pop(item.model.node_id, None)
-                self.removeItem(item)
-                removed_any = True
+        removed_any = self.remove_nodes(self.selected_node_items(), emit_dirty=False) or removed_any
         if removed_any:
             self.project_dirty.emit()
             self._emit_selected_node()
@@ -676,9 +723,11 @@ class NodeScene(QGraphicsScene):
                 return item
         return None
 
+    def selected_node_items(self) -> list[NodeItem]:
+        return [item for item in self.selectedItems() if isinstance(item, NodeItem)]
+
     def _emit_selected_node(self) -> None:
-        selection = next((item for item in self.selectedItems() if isinstance(item, NodeItem)), None)
-        self.node_selected.emit(selection)
+        self.node_selected.emit(self.selected_node_items())
 
 
 class NodeView(QGraphicsView):

@@ -50,6 +50,22 @@ QLabel#DrawerMuted, QLabel#PanelMuted {
     color: #6f91bf;
     font-size: 8.6pt;
 }
+QFrame#InspectorGroup {
+    background: rgba(10, 19, 33, 0.82);
+    border: 1px solid rgba(62, 98, 146, 0.34);
+    border-radius: 13px;
+}
+QLabel#InspectorGroupTitle {
+    color: #eef6ff;
+    font-size: 9.6pt;
+    font-weight: 700;
+}
+QLabel#InspectorGroupMeta {
+    color: #78a6de;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
 QFrame#DrawerPanel, QFrame#LibraryPanel, QFrame#InspectorPanel {
     background: rgba(8, 15, 26, 0.96);
     border: 1px solid rgba(64, 100, 148, 0.24);
@@ -85,7 +101,7 @@ QLabel#OverlayError {
     font-weight: 700;
     padding: 9px 14px;
 }
-QLineEdit, QPlainTextEdit, QTreeWidget, QSpinBox, QDoubleSpinBox, QComboBox, QScrollArea {
+QLineEdit, QPlainTextEdit, QTextEdit, QTreeWidget, QSpinBox, QDoubleSpinBox, QComboBox, QScrollArea {
     background: rgba(8, 17, 29, 0.96);
     border: 1px solid rgba(53, 84, 126, 0.46);
     border-radius: 10px;
@@ -93,10 +109,10 @@ QLineEdit, QPlainTextEdit, QTreeWidget, QSpinBox, QDoubleSpinBox, QComboBox, QSc
     color: #e2eeff;
     selection-background-color: #225ba5;
 }
-QLineEdit:focus, QPlainTextEdit:focus, QTreeWidget:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QTreeWidget:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
     border-color: rgba(88, 164, 248, 0.92);
 }
-QPlainTextEdit#ConsoleOutput {
+QPlainTextEdit#ConsoleOutput, QTextEdit#ConsoleOutput {
     border-radius: 12px;
     font-family: "Consolas", "Courier New";
     font-size: 8.8pt;

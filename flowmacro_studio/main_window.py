@@ -19,7 +19,7 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
-from PySide6.QtGui import QCloseEvent, QColor, QDrag, QGuiApplication, QPainter, QPalette, QTextCursor
+from PySide6.QtGui import QCloseEvent, QColor, QCursor, QDrag, QGuiApplication, QPainter, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .canvas import NODE_MIME_TYPE, NodeScene, NodeView
+from .canvas import NODE_MIME_TYPE, NodeItem, NodeScene, NodeView
 from .inspector import InspectorPanel
 from .models import ConnectionModel, GraphModel, NodeDefinition, NodeModel
 from .node_definitions import build_node_catalog
@@ -184,10 +184,11 @@ class ScreenPositionPicker(QWidget):
 
     def __init__(self) -> None:
         super().__init__(None)
-        self._cursor_pos = QCursor.pos() if "QCursor" in globals() else QPoint(0, 0)
+        self._cursor_pos = QCursor.pos()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.CrossCursor)
         self._set_virtual_geometry()
 
@@ -382,7 +383,7 @@ class NodePalette(QFrame):
         self.tree.itemActivated.connect(self._handle_item_request)
         layout.addWidget(self.tree, 1)
 
-        footer = QLabel("Tip: press Delete on selected nodes or connections to remove them.")
+        footer = QLabel("Tip: press Delete, right-click a node, or drag a node to the left Library side to remove it.")
         footer.setObjectName("DrawerMuted")
         footer.setWordWrap(True)
         layout.addWidget(footer)
@@ -426,7 +427,7 @@ class MainWindow(QMainWindow):
         self.current_project_path: Path | None = None
         self.execution_thread: ExecutionThread | None = None
         self.screen_picker: ScreenPositionPicker | None = None
-        self._screen_picker_node = None
+        self._screen_picker_targets: list[NodeItem] = []
         self.is_dirty = False
         self._loading = False
         self._spawn_count = 0
@@ -486,10 +487,18 @@ class MainWindow(QMainWindow):
         self.new_button = self._make_toolbar_button("New")
         self.load_button = self._make_toolbar_button("Open")
         self.save_button = self._make_toolbar_button("Save")
+        self.clear_button = self._make_toolbar_button("Clear")
         self.run_button = self._make_toolbar_button("Run", object_name="PrimaryButton")
         self.stop_button = self._make_toolbar_button("Stop", object_name="DangerButton")
         self.stop_button.setEnabled(False)
-        for button in [self.new_button, self.load_button, self.save_button, self.run_button, self.stop_button]:
+        for button in [
+            self.new_button,
+            self.load_button,
+            self.save_button,
+            self.clear_button,
+            self.run_button,
+            self.stop_button,
+        ]:
             actions_layout.addWidget(button)
         toolbar_layout.addWidget(actions_strip)
 
@@ -560,10 +569,13 @@ class MainWindow(QMainWindow):
         self.scene.error_message.connect(self.show_error)
         self.scene.project_dirty.connect(self.mark_dirty)
         self.scene.node_selected.connect(self._handle_node_selection)
+        self.scene.selection_activated.connect(self._handle_selection_activated)
+        self.scene.node_drag_finished.connect(self._handle_node_drag_finished)
 
         self.new_button.clicked.connect(self.new_project)
         self.load_button.clicked.connect(self.load_project_via_dialog)
         self.save_button.clicked.connect(self.save_project)
+        self.clear_button.clicked.connect(self.clear_workspace)
         self.run_button.clicked.connect(self.run_project)
         self.stop_button.clicked.connect(self.stop_project)
 
@@ -636,39 +648,72 @@ class MainWindow(QMainWindow):
         item.setSelected(True)
         self.view.setFocus()
 
-    def _handle_node_selection(self, node_item) -> None:
-        self.inspector.set_node(node_item)
-        if node_item is None:
-            self.set_inspector_open(False)
+    def _handle_node_selection(self, node_items) -> None:
+        self.inspector.set_nodes(node_items)
+
+    def _handle_selection_activated(self, node_items) -> None:
+        if not node_items:
             return
+        self.inspector.set_nodes(node_items)
         self.set_inspector_open(True)
 
-    def open_screen_picker(self, node_item) -> None:
-        if node_item is None:
+    def _handle_node_drag_finished(self, node_item, screen_pos) -> None:
+        if not isinstance(node_item, NodeItem):
+            return
+        if not self._is_library_delete_drop(node_item, screen_pos):
+            return
+
+        targets = self.scene.selected_node_items() if node_item.isSelected() else [node_item]
+        removed = self.scene.remove_nodes(targets)
+        if removed:
+            count = len(targets)
+            label = "nodes" if count != 1 else "node"
+            self.append_log(f"Removed {count} {label} by dragging into the Library side.", reveal=False)
+
+    def open_screen_picker(self, node_targets) -> None:
+        if node_targets is None:
+            return
+        if isinstance(node_targets, NodeItem):
+            targets = [node_targets]
+        else:
+            targets = [node_item for node_item in node_targets if isinstance(node_item, NodeItem)]
+        if not targets:
             return
         if self.screen_picker is not None:
             self.screen_picker.close()
-        self._screen_picker_node = node_item
+        self._screen_picker_targets = targets
         self.screen_picker = ScreenPositionPicker()
         self.screen_picker.position_picked.connect(self._apply_picked_screen_position)
         self.screen_picker.picker_closed.connect(self._clear_screen_picker)
         self.screen_picker.show()
 
     def _apply_picked_screen_position(self, x: int, y: int) -> None:
-        node_item = self._screen_picker_node
-        if node_item is None:
+        if not self._screen_picker_targets:
             return
-        node_item.model.config["x"] = x
-        node_item.model.config["y"] = y
-        node_item.refresh_layout()
-        node_item.update()
-        self.inspector.set_node(node_item)
+        for node_item in self._screen_picker_targets:
+            node_item.model.config["x"] = x
+            node_item.model.config["y"] = y
+            node_item.refresh_layout()
+            node_item.update()
+        self.inspector.set_nodes(self.scene.selected_node_items())
         self.mark_dirty()
-        self.append_log(f"[Pick Screen Position] Captured ({x}, {y}).", reveal=True)
+        target_label = "nodes" if len(self._screen_picker_targets) > 1 else "node"
+        self.append_log(f"[Pick Screen Position] Captured ({x}, {y}) for {len(self._screen_picker_targets)} {target_label}.", reveal=True)
 
     def _clear_screen_picker(self) -> None:
         self.screen_picker = None
-        self._screen_picker_node = None
+        self._screen_picker_targets = []
+
+    def _is_library_delete_drop(self, node_item: NodeItem, screen_pos: QPoint) -> bool:
+        if not self.library_dock.is_open():
+            return False
+
+        dock_global_rect = QRect(self.library_dock.mapToGlobal(QPoint(0, 0)), self.library_dock.size())
+        if dock_global_rect.contains(screen_pos):
+            return True
+
+        node_center_in_view = self.view.mapFromScene(node_item.sceneBoundingRect().center())
+        return node_center_in_view.x() <= 28
 
     def mark_dirty(self) -> None:
         if self._loading:
@@ -713,6 +758,22 @@ class MainWindow(QMainWindow):
         self.current_project_path = None
         self.load_starter_project()
         self.mark_clean()
+
+    def clear_workspace(self) -> None:
+        if not self.scene.node_items and not self.scene.connection_items:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Clear Workspace",
+            "Remove all nodes and connections from the current workspace?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.scene.clear_graph()
+        self.inspector.set_nodes([])
+        self.append_log("Workspace cleared.", reveal=False)
 
     def save_project(self) -> None:
         if self.current_project_path is None:
@@ -771,7 +832,7 @@ class MainWindow(QMainWindow):
             self.mark_clean()
         finally:
             self._loading = False
-        self.inspector.set_node(None)
+        self.inspector.set_nodes([])
         self.set_inspector_open(False, animate=False)
         self._update_window_title()
         QTimer.singleShot(0, self.view.fit_content)
