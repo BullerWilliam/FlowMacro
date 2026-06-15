@@ -162,8 +162,9 @@ class RuntimeConsole(QTextEdit):
         if not self.document().isEmpty():
             cursor.insertBlock()
 
-        if isinstance(value, dict) and value.get("kind") == "image":
-            cursor.insertHtml('<span style="color:#8fb5eb;">[Print] Image</span><br>')
+        if isinstance(value, dict) and value.get("kind") in {"image", "stage_image"}:
+            label = "[Stage] Image" if value.get("kind") == "stage_image" else "[Print] Image"
+            cursor.insertHtml(f'<span style="color:#8fb5eb;">{label}</span><br>')
             if value.get("path"):
                 image_path = Path(str(value["path"])).resolve()
                 image_uri = QUrl.fromLocalFile(str(image_path)).toString()
@@ -291,7 +292,7 @@ class CanvasStage(QFrame):
         tab_layout.setContentsMargins(0, 0, 0, 0)
         tab_layout.setSpacing(6)
 
-        for label, active in [("Code", True), ("Costumes", False), ("Sounds", False)]:
+        for label, active in [("Code", True)]:
             button = QPushButton(label)
             button.setObjectName("EditorTabActive" if active else "EditorTab")
             button.setFlat(True)
@@ -325,7 +326,7 @@ class CanvasStage(QFrame):
         self.zoom_in_button = self._create_canvas_button("+", "Zoom in")
         self.zoom_out_button = self._create_canvas_button("-", "Zoom out")
         self.reset_zoom_button = self._create_canvas_button("100%", "Reset zoom")
-        self.fit_view_button = self._create_canvas_button("Fit", "Fit all nodes")
+        self.fit_view_button = self._create_canvas_button("Fit", "Fit all blocks")
 
         controls_layout.addWidget(self.zoom_in_button)
         controls_layout.addWidget(self.zoom_out_button)
@@ -372,7 +373,7 @@ class CanvasStage(QFrame):
         self.error_toast.adjustSize()
         self.error_toast.move((self.surface.width() - self.error_toast.width()) // 2, 16)
 
-CATEGORY_ORDER = ["Control", "Input", "Screen", "Files", "Logic", "Values"]
+CATEGORY_ORDER = ["Control", "Input", "Screen", "Files", "Logic", "Variables", "Values"]
 
 CATEGORY_META = {
     "Control": {"label": "Control", "hint": "Start, timing, and flow", "color": "#ffab19"},
@@ -380,6 +381,7 @@ CATEGORY_META = {
     "Screen": {"label": "Screen", "hint": "Screenshots and pixels", "color": "#ff6680"},
     "Files": {"label": "Files", "hint": "Read, write, move, delete", "color": "#ffbf00"},
     "Logic": {"label": "Logic", "hint": "Compare, math, text, booleans", "color": "#59c059"},
+    "Variables": {"label": "Variables", "hint": "Store values and read them later", "color": "#ff8c1a"},
     "Values": {"label": "Values", "hint": "Numbers, text, booleans", "color": "#9966ff"},
 }
 
@@ -458,7 +460,7 @@ class StagePreview(QFrame):
         header_layout.addWidget(stage_pill)
         header_layout.addWidget(subtitle, 1)
 
-        self.run_button = QPushButton("Green Flag")
+        self.run_button = QPushButton("Run")
         self.run_button.setObjectName("PrimaryButton")
         self.stop_button = QPushButton("Stop")
         self.stop_button.setObjectName("DangerButton")
@@ -471,14 +473,14 @@ class StagePreview(QFrame):
         self.status_label.setObjectName("StageStatus")
         layout.addWidget(self.status_label)
 
-        self.preview_label = QLabel("Run a macro to preview image output here.")
+        self.preview_label = QLabel("Use Set Stage to preview an image here.")
         self.preview_label.setObjectName("StagePlaceholder")
         self.preview_label.setMinimumHeight(260)
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setWordWrap(True)
         layout.addWidget(self.preview_label, 1)
 
-        self.meta_label = QLabel("Screenshots and printed images will appear here.")
+        self.meta_label = QLabel("Stage images appear here when a Set Stage block runs.")
         self.meta_label.setObjectName("DrawerMuted")
         self.meta_label.setWordWrap(True)
         layout.addWidget(self.meta_label)
@@ -492,10 +494,10 @@ class StagePreview(QFrame):
     def clear_preview(self) -> None:
         self._preview_pixmap = None
         self.preview_label.setPixmap(QPixmap())
-        self.preview_label.setText("Run a macro to preview image output here.")
+        self.preview_label.setText("Use Set Stage to preview an image here.")
 
-    def show_image_payload(self, payload: object) -> None:
-        if not isinstance(payload, dict) or payload.get("kind") != "image":
+    def show_stage_payload(self, payload: object) -> None:
+        if not isinstance(payload, dict) or payload.get("kind") != "stage_image":
             return
 
         pixmap = QPixmap()
@@ -853,9 +855,7 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(12)
         right_column.setFixedWidth(402)
 
-        right_layout.addWidget(self.stage_preview, 5)
-        right_layout.addWidget(self.inspector, 4)
-        right_layout.addWidget(self.node_shelf, 2)
+        right_layout.addWidget(self.stage_preview, 1)
 
         self.console_frame = QFrame()
         self.console_frame.setObjectName("ConsoleTray")
@@ -879,17 +879,14 @@ class MainWindow(QMainWindow):
         console_header_layout.addWidget(clear_console_button)
         console_layout.addWidget(console_header)
         console_layout.addWidget(self.log_output, 1)
-        right_layout.addWidget(self.console_frame, 3)
-
         workspace_layout.addWidget(right_column)
         root_layout.addWidget(workspace_row, 1)
+        root_layout.addWidget(self.console_frame)
 
         self.setCentralWidget(root)
 
     def _wire_events(self) -> None:
         self.palette.node_requested.connect(self.add_node_from_palette)
-        self.inspector.config_changed.connect(self.mark_dirty)
-        self.inspector.pick_screen_position_requested.connect(self.open_screen_picker)
         self.scene.error_message.connect(self.show_error)
         self.scene.project_dirty.connect(self.mark_dirty)
         self.scene.node_selected.connect(self._handle_node_selection)
@@ -929,19 +926,20 @@ class MainWindow(QMainWindow):
             nodes=[
                 NodeModel("start-node", "start", 80, 120, {}),
                 NodeModel("delay-node", "delay", 380, 120, {"duration_ms": 400}),
-                NodeModel("screen-node", "take_screenshot", 700, 120, {"file_path": capture_template}),
-                NodeModel("pixel-node", "get_pixel", 1040, 120, {"x": 320, "y": 180}),
+                NodeModel("set-stage-node", "set_stage", 700, 120, {}),
+                NodeModel("pixel-node", "get_pixel_from_image", 1020, 120, {"file_path": "", "x": 320, "y": 180}),
+                NodeModel("screenshot-value", "take_screenshot", 620, 330, {}),
                 NodeModel("duration-value", "number_value", 340, 340, {"value": 400}),
-                NodeModel("file-path-value", "text_value", 660, 340, {"value": capture_template}),
-                NodeModel("x-value", "number_value", 980, 340, {"value": 320}),
-                NodeModel("y-value", "number_value", 1130, 340, {"value": 180}),
+                NodeModel("x-value", "number_value", 980, 380, {"value": 320}),
+                NodeModel("y-value", "number_value", 980, 460, {"value": 180}),
             ],
             connections=[
                 ConnectionModel("start-node", "next", "delay-node", "flow_in"),
-                ConnectionModel("delay-node", "next", "screen-node", "flow_in"),
-                ConnectionModel("screen-node", "next", "pixel-node", "flow_in"),
+                ConnectionModel("delay-node", "next", "set-stage-node", "flow_in"),
+                ConnectionModel("set-stage-node", "next", "pixel-node", "flow_in"),
                 ConnectionModel("duration-value", "value", "delay-node", "duration_ms"),
-                ConnectionModel("file-path-value", "value", "screen-node", "file_path"),
+                ConnectionModel("screenshot-value", "image", "set-stage-node", "image"),
+                ConnectionModel("screenshot-value", "image", "pixel-node", "image"),
                 ConnectionModel("x-value", "value", "pixel-node", "x"),
                 ConnectionModel("y-value", "value", "pixel-node", "y"),
             ],
@@ -951,10 +949,10 @@ class MainWindow(QMainWindow):
         self._update_window_title()
         self.log_output.clear()
         self.append_log("Starter project loaded.")
-        self.append_log("Open the Library drawer to add new blocks, drag blocks out into the canvas, or press Run.")
+        self.append_log("Open the Blocks drawer to add blocks, drag them into the canvas, or press Run.")
         self.stage_preview.clear_preview()
         self.stage_preview.set_status("Ready to run")
-        self._refresh_node_shelf()
+        
 
     def add_node_from_palette(self, type_id: str) -> None:
         view_center = self.view.mapToScene(self.view.viewport().rect().center())
@@ -964,24 +962,19 @@ class MainWindow(QMainWindow):
         self.scene.clearSelection()
         item.setSelected(True)
         self.view.setFocus()
-        self._refresh_node_shelf()
+        
 
     def _handle_node_selection(self, node_items) -> None:
-        self.inspector.set_nodes(node_items)
-        self._refresh_node_shelf()
+        _ = node_items
 
     def _handle_selection_activated(self, node_items) -> None:
-        if not node_items:
-            return
-        self.inspector.set_nodes(node_items)
-        self.set_inspector_open(True)
+        _ = node_items
 
     def _handle_node_drag_finished(self, node_item, screen_pos) -> None:
         if not isinstance(node_item, NodeItem):
             return
         snapped = self.scene.snap_released_node(node_item)
         if snapped:
-            self._refresh_node_shelf()
             return
         if not self._is_library_delete_drop(node_item, screen_pos):
             return
@@ -990,9 +983,8 @@ class MainWindow(QMainWindow):
         removed = self.scene.remove_nodes(targets)
         if removed:
             count = len(targets)
-            label = "nodes" if count != 1 else "node"
-            self.append_log(f"Removed {count} {label} by dragging into the Library side.", reveal=False)
-            self._refresh_node_shelf()
+            label = "blocks" if count != 1 else "block"
+            self.append_log(f"Removed {count} {label} by dragging into the Blocks side.", reveal=False)
 
     def open_screen_picker(self, node_targets) -> None:
         if node_targets is None:
@@ -1019,9 +1011,8 @@ class MainWindow(QMainWindow):
             node_item.model.config["y"] = y
             node_item.refresh_layout()
             node_item.update()
-        self.inspector.set_nodes(self.scene.selected_node_items())
         self.mark_dirty()
-        target_label = "nodes" if len(self._screen_picker_targets) > 1 else "node"
+        target_label = "blocks" if len(self._screen_picker_targets) > 1 else "block"
         self.append_log(f"[Pick Screen Position] Captured ({x}, {y}) for {len(self._screen_picker_targets)} {target_label}.", reveal=True)
 
     def _clear_screen_picker(self) -> None:
@@ -1058,7 +1049,7 @@ class MainWindow(QMainWindow):
 
     def append_log(self, value: object, reveal: bool = False) -> None:
         self.log_output.append_entry(value)
-        self.stage_preview.show_image_payload(value)
+        self.stage_preview.show_stage_payload(value)
 
     def confirm_discard_changes(self) -> bool:
         if not self.is_dirty:
@@ -1085,17 +1076,15 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Clear Workspace",
-            "Remove all nodes and connections from the current workspace?",
+            "Remove all blocks and stack links from the current workspace?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if answer != QMessageBox.Yes:
             return
         self.scene.clear_graph()
-        self.inspector.set_nodes([])
         self.append_log("Workspace cleared.", reveal=False)
         self.stage_preview.clear_preview()
-        self._refresh_node_shelf()
 
     def save_project(self) -> None:
         if self.current_project_path is None:
@@ -1154,10 +1143,8 @@ class MainWindow(QMainWindow):
             self.mark_clean()
         finally:
             self._loading = False
-        self.inspector.set_nodes([])
         self._update_window_title()
         self.stage_preview.clear_preview()
-        self._refresh_node_shelf()
         QTimer.singleShot(0, self.view.fit_content)
 
     def run_project(self) -> None:
@@ -1201,9 +1188,7 @@ class MainWindow(QMainWindow):
         self.stage_preview.stop_button.setEnabled(False)
 
     def _refresh_node_shelf(self) -> None:
-        ordered_nodes = sorted(self.scene.node_items.values(), key=lambda item: (item.model.y, item.model.x))
-        selected_ids = {item.model.node_id for item in self.scene.selected_node_items()}
-        self.node_shelf.set_nodes(ordered_nodes, selected_ids)
+        return
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.screen_picker is not None:

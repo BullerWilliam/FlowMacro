@@ -30,6 +30,7 @@ class GraphRuntime:
         self.pure_cache: dict[str, dict[str, Any]] = {}
         self.incoming_data: dict[tuple[str, str], ConnectionModel] = {}
         self.outgoing_flow: dict[tuple[str, str], list[ConnectionModel]] = {}
+        self.variables: dict[str, Any] = {}
         self.step_count = 0
         self.max_steps = 1000
         self.base_dir = (project_path.parent if project_path else Path.cwd()).resolve()
@@ -115,6 +116,30 @@ class GraphRuntime:
             self.log(value)
             return ["next"]
 
+        if node.type_id == "set_variable":
+            name = self._normalize_variable_name(self._value_for(node, "name", ""))
+            value = self._value_for(node, "value", 0)
+            self.variables[name] = value
+            self.pure_cache.clear()
+            self.outputs_cache[node.node_id] = {}
+            self.log(f"[Set Variable] {name} = {self._format_variable_value(value)}")
+            return ["next"]
+
+        if node.type_id == "change_variable":
+            name = self._normalize_variable_name(self._value_for(node, "name", ""))
+            amount = float(self._value_for(node, "amount", 0))
+            current = self.variables.get(name, 0)
+            next_value = self._coerce_variable_number(current) + amount
+            if next_value.is_integer():
+                stored_value: Any = int(next_value)
+            else:
+                stored_value = next_value
+            self.variables[name] = stored_value
+            self.pure_cache.clear()
+            self.outputs_cache[node.node_id] = {}
+            self.log(f"[Change Variable] {name} -> {self._format_variable_value(stored_value)}")
+            return ["next"]
+
         if node.type_id == "get_files":
             folder_value = str(self._value_for(node, "folder", "."))
             pattern = str(self._value_for(node, "pattern", "*.*"))
@@ -179,33 +204,6 @@ class GraphRuntime:
             self.log(f"[Move File] Moved {source} -> {result}.")
             return ["next"]
 
-        if node.type_id == "take_screenshot":
-            import mss
-
-            file_path = str(self._value_for(node, "file_path", "captures/capture_{timestamp}.png"))
-            with mss.mss() as screen_capture:
-                screenshot = screen_capture.grab(screen_capture.monitors[0])
-            image_payload = self._image_payload_from_rgb(screenshot.rgb, screenshot.size)
-
-            saved_path = ""
-            if file_path.strip():
-                import mss.tools
-
-                resolved_file = self._prepare_output_file(file_path)
-                resolved_file.parent.mkdir(parents=True, exist_ok=True)
-                mss.tools.to_png(screenshot.rgb, screenshot.size, output=str(resolved_file))
-                saved_path = str(resolved_file.resolve())
-                image_payload["path"] = saved_path
-                self.log(f"[Take Screenshot] Saved {saved_path}.")
-            else:
-                self.log("[Take Screenshot] Captured image in memory.")
-
-            self.outputs_cache[node.node_id] = {
-                "saved_path": saved_path,
-                "image": image_payload,
-            }
-            return ["next"]
-
         if node.type_id == "get_pixel":
             import pyautogui
 
@@ -221,8 +219,7 @@ class GraphRuntime:
             from PIL import Image
 
             image_value = self._value_for(node, "image", None)
-            file_path_value = self._value_for(node, "file_path", "")
-            image_bytes = self._resolve_image_data(image_value, file_path_value)
+            image_bytes = self._resolve_image_data(image_value, "")
             x = int(self._value_for(node, "x", 0))
             y = int(self._value_for(node, "y", 0))
             with Image.open(io.BytesIO(image_bytes)) as image_file:
@@ -233,8 +230,16 @@ class GraphRuntime:
                     )
                 red, green, blue = image.getpixel((x, y))
             self.outputs_cache[node.node_id] = self._pixel_outputs(x, y, red, green, blue)
-            image_label = self._describe_image_source(image_value, file_path_value)
+            image_label = self._describe_image_source(image_value, "")
             self.log(f"[Get Pixel from Image] {image_label} @ ({x}, {y}) -> rgb({red}, {green}, {blue}).")
+            return ["next"]
+
+        if node.type_id == "set_stage":
+            image_value = self._value_for(node, "image", None)
+            stage_image = self._resolve_image_payload(image_value)
+            self.outputs_cache[node.node_id] = {}
+            self.log(stage_image)
+            self.log("[Set Stage] Updated stage preview.")
             return ["next"]
 
         if node.type_id == "mouse_move":
@@ -311,6 +316,10 @@ class GraphRuntime:
         if node.type_id == "boolean_value":
             return {"value": bool(node.config.get("value", False))}
 
+        if node.type_id == "get_variable":
+            name = self._normalize_variable_name(self._value_for(node, "name", ""))
+            return {"value": self.variables.get(name, 0)}
+
         if node.type_id == "math_operation":
             left = float(self._value_for(node, "left", 0.0))
             right = float(self._value_for(node, "right", 0.0))
@@ -367,6 +376,53 @@ class GraphRuntime:
             left = bool(self._value_for(node, "left", False))
             right = bool(self._value_for(node, "right", False))
             return {"result": left or right}
+
+        if node.type_id == "take_screenshot":
+            import mss
+
+            with mss.mss() as screen_capture:
+                screenshot = screen_capture.grab(screen_capture.monitors[0])
+            image_payload = self._image_payload_from_rgb(screenshot.rgb, screenshot.size)
+            self.log("[Take Screenshot] Captured image in memory.")
+            return {"image": image_payload}
+
+        if node.type_id == "crop_image":
+            from PIL import Image
+
+            image_value = self._value_for(node, "image", None)
+            image_bytes = self._resolve_image_data(image_value, "")
+            x = int(self._value_for(node, "x", 0))
+            y = int(self._value_for(node, "y", 0))
+            width = max(1, int(self._value_for(node, "width", 1)))
+            height = max(1, int(self._value_for(node, "height", 1)))
+            with Image.open(io.BytesIO(image_bytes)) as image_file:
+                image = image_file.convert("RGB")
+                right = min(image.width, x + width)
+                bottom = min(image.height, y + height)
+                if x < 0 or y < 0 or x >= image.width or y >= image.height or right <= x or bottom <= y:
+                    raise RuntimeError("Crop Image area must overlap the input image.")
+                cropped = image.crop((x, y, right, bottom))
+            return {"image": self._image_payload_from_pil(cropped)}
+
+        if node.type_id == "set_image_pixel":
+            from PIL import Image
+
+            image_value = self._value_for(node, "image", None)
+            image_bytes = self._resolve_image_data(image_value, "")
+            x = int(self._value_for(node, "x", 0))
+            y = int(self._value_for(node, "y", 0))
+            red = max(0, min(255, int(self._value_for(node, "red", 0))))
+            green = max(0, min(255, int(self._value_for(node, "green", 0))))
+            blue = max(0, min(255, int(self._value_for(node, "blue", 0))))
+            with Image.open(io.BytesIO(image_bytes)) as image_file:
+                image = image_file.convert("RGB")
+                if x < 0 or y < 0 or x >= image.width or y >= image.height:
+                    raise RuntimeError(
+                        f"Image pixel ({x}, {y}) is outside the image bounds {image.width}x{image.height}."
+                    )
+                updated = image.copy()
+                updated.putpixel((x, y), (red, green, blue))
+            return {"image": self._image_payload_from_pil(updated)}
 
         if node.type_id == "files_count":
             files = self._value_for(node, "files", [])
@@ -440,6 +496,23 @@ class GraphRuntime:
         image_path = self._resolve_image_source(image_value, file_path_value)
         return image_path.read_bytes()
 
+    def _resolve_image_payload(self, image_value: Any) -> dict[str, str]:
+        if isinstance(image_value, dict) and image_value.get("kind") == "stage_image":
+            image_value = {key: value for key, value in image_value.items() if key != "kind"}
+            image_value["kind"] = "image"
+        if isinstance(image_value, dict) and image_value.get("kind") == "image":
+            payload = dict(image_value)
+            payload["kind"] = "stage_image"
+            return payload
+        if isinstance(image_value, str) and image_value.strip():
+            image_path = self._resolve_path(image_value)
+            data = image_path.read_bytes()
+            payload = self._image_payload_from_bytes(data)
+            payload["path"] = str(image_path.resolve())
+            payload["kind"] = "stage_image"
+            return payload
+        raise RuntimeError("Connect an image before using Set Stage.")
+
     def _describe_image_source(self, image_value: Any, file_path_value: Any) -> str:
         if isinstance(image_value, dict) and image_value.get("kind") == "image":
             if image_value.get("path"):
@@ -499,6 +572,32 @@ class GraphRuntime:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(text)
 
+    def _normalize_variable_name(self, raw_name: Any) -> str:
+        name = str(raw_name).strip()
+        if not name:
+            raise RuntimeError("Variable name cannot be empty.")
+        return name
+
+    def _coerce_variable_number(self, value: Any) -> float:
+        if isinstance(value, bool):
+            return 1.0 if value else 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip()
+        if not text:
+            return 0.0
+        try:
+            return float(text)
+        except ValueError as exc:
+            raise RuntimeError(f"Variable '{value}' is not a number and cannot be changed.") from exc
+
+    def _format_variable_value(self, value: Any) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+
     def _delete_file(self, path: Path, missing_ok: bool) -> bool:
         if not path.exists():
             if missing_ok:
@@ -529,8 +628,16 @@ class GraphRuntime:
 
         width, height = int(size.width), int(size.height)
         image = Image.frombytes("RGB", (width, height), rgb_bytes)
+        return self._image_payload_from_pil(image)
+
+    def _image_payload_from_pil(self, image) -> dict[str, str]:
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
+        return self._image_payload_from_bytes(buffer.getvalue())
+
+    def _image_payload_from_bytes(self, image_bytes: bytes) -> dict[str, str]:
+        buffer = io.BytesIO()
+        buffer.write(image_bytes)
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
         return {
             "kind": "image",

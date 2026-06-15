@@ -24,10 +24,11 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsScene,
     QGraphicsView,
+    QInputDialog,
     QMenu,
 )
 
-from .models import ConnectionModel, GraphModel, NodeDefinition, NodeModel, PortDefinition
+from .models import ConfigField, ConnectionModel, GraphModel, NodeDefinition, NodeModel, PortDefinition
 from .styles import port_color, with_alpha
 
 NODE_MIME_TYPE = "application/x-flowmacro-node"
@@ -42,9 +43,9 @@ class PortItem(QGraphicsObject):
         self.definition = definition
         self.connections: list[ConnectionItem] = []
         self._hovered = False
-        self.setAcceptHoverEvents(True)
-        self.setAcceptedMouseButtons(Qt.LeftButton)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setAcceptHoverEvents(False)
+        self.setAcceptedMouseButtons(Qt.NoButton)
+        self.setCursor(Qt.ArrowCursor)
         self.setZValue(3)
 
     def boundingRect(self) -> QRectF:
@@ -54,42 +55,19 @@ class PortItem(QGraphicsObject):
         _ = painter, option, widget
 
     def hoverEnterEvent(self, event) -> None:
-        self._hovered = True
-        self.update()
-        super().hoverEnterEvent(event)
+        _ = event
 
     def hoverLeaveEvent(self, event) -> None:
-        self._hovered = False
-        self.update()
-        super().hoverLeaveEvent(event)
+        _ = event
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton:
-            scene = self.scene()
-            if isinstance(scene, NodeScene):
-                scene.begin_connection(self)
-                self.grabMouse()
-                event.accept()
-                return
-        super().mousePressEvent(event)
+        _ = event
 
     def mouseMoveEvent(self, event) -> None:
-        scene = self.scene()
-        if isinstance(scene, NodeScene) and scene.is_connecting_from(self):
-            scene.update_preview(event.scenePos())
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
+        _ = event
 
     def mouseReleaseEvent(self, event) -> None:
-        scene = self.scene()
-        if isinstance(scene, NodeScene) and scene.is_connecting_from(self):
-            self.ungrabMouse()
-            target = scene.port_at(event.scenePos(), exclude=self)
-            scene.finish_connection(target)
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
+        _ = event
 
     def scene_center(self) -> QPointF:
         return self.mapToScene(QPointF(0, 0))
@@ -108,9 +86,9 @@ class ConnectionItem(QGraphicsPathItem):
         self.preview = preview
         self.end_pos = source_port.scene_center()
         self._hovered = False
-        self.setFlag(QGraphicsItem.ItemIsSelectable, not preview)
-        self.setAcceptHoverEvents(not preview)
-        self.setCursor(Qt.PointingHandCursor if not preview else Qt.ArrowCursor)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, False)
+        self.setAcceptHoverEvents(False)
+        self.setCursor(Qt.ArrowCursor)
         self.setZValue(-2 if not preview else 0)
         self.update_path()
 
@@ -148,71 +126,13 @@ class ConnectionItem(QGraphicsPathItem):
         return stroker.createStroke(self.path())
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        color = port_color(self.source_port.definition.type_name)
-        path = self.path()
-        is_flow = self.source_port.definition.type_name == "flow"
-
-        if is_flow and self.target_port and not self.preview and not self.isSelected() and not self._hovered:
-            start = self.source_port.scene_center()
-            end = self.target_port.scene_center()
-            if abs(start.x() - end.x()) < 28 and 0 <= end.y() - start.y() <= 120:
-                return
-
-        if not is_flow and self.target_port and not self.preview and not self.isSelected() and not self._hovered:
-            source_rect = self.source_port.node_item.sceneBoundingRect()
-            target_rect = self.target_port.node_item.sceneBoundingRect().adjusted(-8, -8, 8, 8)
-            if target_rect.intersects(source_rect):
-                return
-
-        if self.preview:
-            glow_width = 5.0 if is_flow else 6.0
-            core_width = 1.6 if is_flow else 2.0
-            glow_alpha = 55 if is_flow else 70
-            core_color = with_alpha(color, 210 if is_flow else 225)
-        else:
-            active = self.isSelected() or self._hovered
-            if is_flow:
-                glow_width = 5.5 if active else 3.8
-                core_width = 1.8 if active else 1.2
-                glow_alpha = 90 if active else 18
-            else:
-                glow_width = 8.0 if active else 6.2
-                core_width = 2.8 if active else 2.2
-                glow_alpha = 120 if active else 62
-            core_color = color.darker(105) if active else color
-
-        glow_pen = QPen(with_alpha(color, glow_alpha), glow_width)
-        glow_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(glow_pen)
-        painter.drawPath(path)
-
-        if not is_flow:
-            painter.setPen(QPen(with_alpha(QColor("#ffffff"), 190), core_width + 1.2))
-            painter.drawPath(path)
-
-        core_pen = QPen(core_color, core_width)
-        core_pen.setCapStyle(Qt.RoundCap)
-        if self.preview:
-            core_pen.setStyle(Qt.DashLine)
-        painter.setPen(core_pen)
-        painter.drawPath(path)
-
-        if self.isSelected() and not self.preview:
-            highlight_pen = QPen(with_alpha(QColor("#ffffff"), 95), 0.9)
-            highlight_pen.setCapStyle(Qt.RoundCap)
-            painter.setPen(highlight_pen)
-            painter.drawPath(path)
+        _ = painter, option, widget
 
     def hoverEnterEvent(self, event) -> None:
-        self._hovered = True
-        self.update()
-        super().hoverEnterEvent(event)
+        _ = event
 
     def hoverLeaveEvent(self, event) -> None:
-        self._hovered = False
-        self.update()
-        super().hoverLeaveEvent(event)
+        _ = event
 
     def detach(self) -> None:
         if self in self.source_port.connections:
@@ -230,6 +150,7 @@ class NodeItem(QGraphicsObject):
         self.outputs: dict[str, PortItem] = {}
         self.input_socket_rects: dict[str, QRectF] = {}
         self.input_label_rects: dict[str, QRectF] = {}
+        self.choice_input_rects: dict[str, QRectF] = {}
         self.output_slot_rects: dict[str, QRectF] = {}
         self.output_label_rects: dict[str, QRectF] = {}
         self.header_rect = QRectF()
@@ -265,6 +186,7 @@ class NodeItem(QGraphicsObject):
         data_outputs = [port for port in self.definition.outputs if port.type_name != "flow"]
         self.input_socket_rects = {}
         self.input_label_rects = {}
+        self.choice_input_rects = {}
         self.output_slot_rects = {}
         self.output_label_rects = {}
         self.header_rect = QRectF()
@@ -294,22 +216,12 @@ class NodeItem(QGraphicsObject):
             rail_padding = 16.0
             rail_port_gap = 8.0
             rail_port_width = 18.0
-            rail_min_width = 92.0 if data_outputs else 0.0
-
             max_input_label_width = max(
                 [label_metrics.horizontalAdvance(port.label) for port in data_inputs],
                 default=0.0,
             )
-            max_output_label_width = max(
-                [output_metrics.horizontalAdvance(port.label) for port in data_outputs],
-                default=0.0,
-            )
             title_width = title_metrics.horizontalAdvance(self.definition.title)
-            output_rail_width = (
-                max(rail_min_width, rail_padding * 2 + max_output_label_width + rail_port_gap + rail_port_width)
-                if data_outputs
-                else 0.0
-            )
+            output_rail_width = 0.0
 
             current_y = header_top + header_height + header_gap
             label_width = max(36.0, max_input_label_width)
@@ -318,12 +230,18 @@ class NodeItem(QGraphicsObject):
             row_rects: list[QRectF] = []
             for port in data_inputs:
                 child = self.connected_input_node(port.key)
-                slot_width = max(88.0, (child.width + 14.0) if child is not None else 110.0)
+                choice_width = self.choice_input_width(port.key, label_metrics)
+                slot_width = max(
+                    choice_width,
+                    (child.width + 14.0) if child is not None else 110.0,
+                )
                 slot_height = max(row_min_height, (child.height + 10.0) if child is not None else row_min_height)
                 row_rect = QRectF(left_padding, current_y - 1.0, label_width + label_gap + slot_width, slot_height + 2.0)
                 row_rects.append(row_rect)
                 self.input_label_rects[port.key] = QRectF(left_padding, current_y, label_width, slot_height)
                 self.input_socket_rects[port.key] = QRectF(socket_left, current_y, slot_width, slot_height)
+                if self.is_choice_input(port.key):
+                    self.choice_input_rects[port.key] = QRectF(socket_left, current_y, slot_width, slot_height)
                 max_socket_width = max(max_socket_width, slot_width)
                 current_y += slot_height + row_gap
 
@@ -339,24 +257,10 @@ class NodeItem(QGraphicsObject):
                 content_top = header_top + header_height + header_gap
                 content_bottom = content_top + row_min_height
 
-            output_span = max(content_bottom - content_top, max(0, len(data_outputs) - 1) * 28.0 + 18.0)
+            output_span = content_bottom - content_top
             self.height = max(72.0, content_top + output_span + body_bottom)
 
             self.header_rect = QRectF(left_padding - 4.0, header_top, min(self.width - 24.0, header_width), header_height)
-            if output_rail_width:
-                self.output_rail_rect = QRectF(rail_left, content_top, output_rail_width, self.height - content_top - body_bottom)
-
-            output_start_y = content_top + 3.0
-            for index, port in enumerate(data_outputs):
-                slot_y = output_start_y + index * 28.0
-                self.output_slot_rects[port.key] = QRectF(rail_left, slot_y - 1.0, output_rail_width, 18.0)
-                label_right_edge = self.width - rail_padding - rail_port_gap - rail_port_width
-                self.output_label_rects[port.key] = QRectF(
-                    rail_left + rail_padding,
-                    slot_y - 1.0,
-                    max(0.0, label_right_edge - (rail_left + rail_padding)),
-                    18.0,
-                )
         elif self.is_boolean_reporter:
             current_y = 28.0
             max_socket_width = 68.0
@@ -381,17 +285,60 @@ class NodeItem(QGraphicsObject):
                     self.outputs[port.key].setPos(self.width - 10.0, self._reporter_port_y(index, total_outputs))
                 self.update()
                 return
-            current_y = 26.0
-            max_socket_width = 76.0
-            for port in data_inputs:
-                child = self.connected_input_node(port.key)
-                slot_width = max(72.0, (child.width + 10.0) if child is not None else 76.0)
-                slot_height = max(18.0, (child.height + 6.0) if child is not None else 18.0)
-                self.input_socket_rects[port.key] = QRectF(42.0, current_y - 9.0, slot_width, slot_height)
-                max_socket_width = max(max_socket_width, slot_width)
-                current_y += slot_height + 4.0
-            self.width = max(150.0, 58.0 + max_socket_width)
-            self.height = max(36.0, current_y + 8.0 if data_inputs else 36.0)
+            if data_inputs:
+                title_font = QFont(QApplication.font())
+                title_font.setPointSize(9.2)
+                title_font.setBold(True)
+                label_font = QFont(QApplication.font())
+                label_font.setPointSizeF(7.8)
+                label_font.setBold(True)
+
+                title_metrics = QFontMetricsF(title_font)
+                label_metrics = QFontMetricsF(label_font)
+                header_top = 10.0
+                header_height = 24.0
+                header_gap = 14.0
+                body_bottom = 14.0
+                left_padding = 18.0
+                label_gap = 12.0
+                row_gap = 10.0
+                row_min_height = 22.0
+                right_padding = 18.0
+
+                max_input_label_width = max(
+                    [label_metrics.horizontalAdvance(port.label) for port in data_inputs],
+                    default=0.0,
+                )
+                title_width = title_metrics.horizontalAdvance(self.definition.title)
+                label_width = max(42.0, max_input_label_width + 6.0)
+                socket_left = left_padding + label_width + label_gap
+                current_y = header_top + header_height + header_gap
+                max_socket_width = 92.0
+                for port in data_inputs:
+                    child = self.connected_input_node(port.key)
+                    choice_width = self.choice_input_width(port.key, label_metrics)
+                    slot_width = max(
+                        choice_width,
+                        (child.width + 12.0) if child is not None else 92.0,
+                    )
+                    slot_height = max(row_min_height, (child.height + 8.0) if child is not None else row_min_height)
+                    self.input_label_rects[port.key] = QRectF(left_padding, current_y, label_width, slot_height)
+                    self.input_socket_rects[port.key] = QRectF(socket_left, current_y, slot_width, slot_height)
+                    if self.is_choice_input(port.key):
+                        self.choice_input_rects[port.key] = QRectF(socket_left, current_y, slot_width, slot_height)
+                    max_socket_width = max(max_socket_width, slot_width)
+                    current_y += slot_height + row_gap
+
+                self.width = max(176.0, socket_left + max_socket_width + right_padding, title_width + 60.0)
+                self.height = max(48.0, current_y + body_bottom - row_gap)
+                self.header_rect = QRectF(left_padding - 2.0, header_top, self.width - (left_padding * 2) + 4.0, header_height)
+            else:
+                title_font = QFont(QApplication.font())
+                title_font.setPointSize(9.2)
+                title_font.setBold(True)
+                title_metrics = QFontMetricsF(title_font)
+                self.width = max(150.0, title_metrics.horizontalAdvance(self.definition.title) + 52.0)
+                self.height = 42.0
 
         self.prepareGeometryChange()
 
@@ -406,11 +353,6 @@ class NodeItem(QGraphicsObject):
             for port in data_inputs:
                 socket = self.input_socket_rects.get(port.key, QRectF(96.0, 20.0, 88.0, 22.0))
                 self.inputs[port.key].setPos(socket.right() - 10.0, socket.center().y())
-            for index, port in enumerate(data_outputs):
-                slot = self.output_slot_rects.get(port.key)
-                if slot is None:
-                    continue
-                self.outputs[port.key].setPos(slot.right() - 10.0, slot.center().y())
         else:
             total_inputs = len(data_inputs)
             total_outputs = len(data_outputs)
@@ -423,23 +365,6 @@ class NodeItem(QGraphicsObject):
             for index, port in enumerate(data_outputs):
                 self.outputs[port.key].setPos(self.width - 10.0, self._reporter_port_y(index, total_outputs))
         self.update()
-
-    def summary_lines(self) -> list[str]:
-        def shrink(value: object) -> str:
-            text = str(value)
-            return text if len(text) <= 26 else f"{text[:23]}..."
-
-        if not self.definition.config_fields:
-            summary = self.definition.description
-            return [summary if len(summary) <= 34 else f"{summary[:31]}..."]
-
-        lines: list[str] = []
-        for field in self.definition.config_fields[:2]:
-            value = self.model.config.get(field.key, field.default)
-            if isinstance(value, bool):
-                value = "True" if value else "False"
-            lines.append(f"{field.label}: {shrink(value)}")
-        return lines
 
     def boundingRect(self) -> QRectF:
         return QRectF(-14, -14, self.width + 28, self.height + 28)
@@ -480,6 +405,16 @@ class NodeItem(QGraphicsObject):
             painter.setFont(value_font)
             painter.setPen(QColor("#ffffff"))
             painter.drawText(QRectF(18, 0, self.width - 36, self.height), Qt.AlignCenter, self.literal_value_text())
+        elif not self.is_boolean_reporter:
+            painter.setPen(QColor("#ffffff"))
+            title_font = painter.font()
+            title_font.setPointSize(9.2)
+            title_font.setBold(True)
+            painter.setFont(title_font)
+            if not self.header_rect.isNull():
+                painter.drawText(self.header_rect.adjusted(14, 0, -10, 0), Qt.AlignVCenter | Qt.AlignLeft, self.definition.title)
+            else:
+                painter.drawText(self.title_rect(), Qt.AlignVCenter | Qt.AlignCenter, self.definition.title)
         else:
             painter.setPen(QColor("#ffffff"))
             title_font = painter.font()
@@ -508,14 +443,12 @@ class NodeItem(QGraphicsObject):
                 continue
             painter.setPen(with_alpha(QColor("#ffffff"), 245))
             painter.drawText(label_rect, Qt.AlignVCenter | Qt.AlignLeft, port.label)
-            self._paint_input_socket(painter, socket, port.type_name, port.key)
+            if self.is_choice_input(port.key):
+                self._paint_choice_input(painter, socket, port.key, label_font)
+            else:
+                self._paint_input_socket(painter, socket, port.type_name, port.key)
 
         painter.setPen(with_alpha(QColor("#ffffff"), 235))
-        for port in [port for port in self.definition.outputs if port.type_name != "flow"]:
-            label_rect = self.output_label_rects.get(port.key)
-            if label_rect is None:
-                continue
-            painter.drawText(label_rect, Qt.AlignRight | Qt.AlignVCenter, port.label)
 
     def _paint_reporter_ports(self, painter: QPainter) -> None:
         label_font = painter.font()
@@ -526,26 +459,21 @@ class NodeItem(QGraphicsObject):
 
         if self.is_boolean_reporter:
             painter.drawText(QRectF(18, 8, self.width - 36, 18), Qt.AlignCenter, self.definition.title)
-        else:
-            painter.drawText(QRectF(16, 8, self.width - 32, 18), Qt.AlignCenter, self.definition.title)
-            detail_font = painter.font()
-            detail_font.setPointSize(7.4)
-            detail_font.setBold(False)
-            painter.setFont(detail_font)
-            for index, line in enumerate(self.summary_lines()[:1]):
-                painter.drawText(QRectF(18, 24 + index * 14, self.width - 36, 14), Qt.AlignCenter, line)
 
         painter.setFont(label_font)
         painter.setPen(QColor("#ffffff"))
         for port in self.definition.inputs:
             if port.type_name == "flow":
                 continue
+            label_rect = self.input_label_rects.get(port.key)
             socket = self.input_socket_rects.get(port.key)
-            if socket is None:
+            if label_rect is None or socket is None:
                 continue
-            label_rect = QRectF(18, socket.top() - 1, max(22.0, socket.left() - 22.0), socket.height())
-            painter.drawText(label_rect, Qt.AlignVCenter | Qt.AlignRight, port.label)
-            self._paint_input_socket(painter, socket, port.type_name, port.key)
+            painter.drawText(label_rect, Qt.AlignVCenter | Qt.AlignLeft, port.label)
+            if self.is_choice_input(port.key):
+                self._paint_choice_input(painter, socket, port.key, label_font)
+            else:
+                self._paint_input_socket(painter, socket, port.type_name, port.key)
 
     @property
     def is_command_block(self) -> bool:
@@ -559,6 +487,14 @@ class NodeItem(QGraphicsObject):
     @property
     def is_literal_value_node(self) -> bool:
         return self.definition.type_id in {"number_value", "text_value", "boolean_value", "path_value"}
+
+    @property
+    def is_multi_input_reporter(self) -> bool:
+        return (
+            not self.definition.is_flow_node
+            and not self.is_literal_value_node
+            and any(port.type_name != "flow" for port in self.definition.inputs)
+        )
 
     def flow_anchor_x(self) -> float:
         return 38.0
@@ -579,6 +515,8 @@ class NodeItem(QGraphicsObject):
             if not self.header_rect.isNull():
                 return self.header_rect.adjusted(20, 0, -16, 0)
             return QRectF(24, 12, self.width - 48, 18)
+        if self.is_multi_input_reporter and not self.header_rect.isNull():
+            return self.header_rect.adjusted(14, 0, -10, 0)
         return QRectF(18, 8, self.width - 36, 18)
 
     def detail_rect(self, index: int) -> QRectF:
@@ -591,6 +529,8 @@ class NodeItem(QGraphicsObject):
             return self._command_path()
         if self.is_boolean_reporter:
             return self._boolean_path()
+        if self.is_multi_input_reporter:
+            return self._multi_input_reporter_path()
         return self._reporter_path()
 
     def highlight_path(self) -> QPainterPath:
@@ -641,6 +581,11 @@ class NodeItem(QGraphicsObject):
         path.addRoundedRect(QRectF(0, 0, self.width, self.height), self.height / 2.2, self.height / 2.2)
         return path
 
+    def _multi_input_reporter_path(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, self.width, self.height), 18.0, 18.0)
+        return path
+
     def _boolean_path(self) -> QPainterPath:
         path = QPainterPath()
         mid_y = self.height / 2
@@ -676,9 +621,51 @@ class NodeItem(QGraphicsObject):
             return text
         return f'"{text}"'
 
+    def config_field_for_port(self, port_key: str) -> ConfigField | None:
+        return next((field for field in self.definition.config_fields if field.key == port_key), None)
+
+    def is_choice_input(self, port_key: str) -> bool:
+        field = self.config_field_for_port(port_key)
+        return field is not None and field.field_type == "choice"
+
+    def choice_input_width(self, port_key: str, metrics: QFontMetricsF | None = None) -> float:
+        field = self.config_field_for_port(port_key)
+        if field is None or field.field_type != "choice":
+            return 0.0
+        field_metrics = metrics or QFontMetricsF(QApplication.font())
+        current = str(self.model.config.get(port_key, field.default))
+        widest = max([current, *field.choices], key=lambda value: field_metrics.horizontalAdvance(str(value)))
+        return max(90.0, field_metrics.horizontalAdvance(str(widest)) + 28.0)
+
+    def _paint_choice_input(self, painter: QPainter, rect: QRectF, port_key: str, font: QFont) -> None:
+        field = self.config_field_for_port(port_key)
+        if field is None:
+            return
+        value = str(self.model.config.get(port_key, field.default))
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(with_alpha(QColor("#ffffff"), 230))
+        painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        choice_font = QFont(font)
+        choice_font.setBold(True)
+        painter.setFont(choice_font)
+        painter.setPen(QColor("#43608f"))
+        painter.drawText(rect.adjusted(14, 0, -22, 0), Qt.AlignVCenter | Qt.AlignLeft, value)
+        arrow_x = rect.right() - 14.0
+        arrow_y = rect.center().y()
+        arrow = QPainterPath()
+        arrow.moveTo(arrow_x - 4.0, arrow_y - 2.0)
+        arrow.lineTo(arrow_x + 4.0, arrow_y - 2.0)
+        arrow.lineTo(arrow_x, arrow_y + 3.0)
+        arrow.closeSubpath()
+        painter.setBrush(QColor("#5d78ab"))
+        painter.drawPath(arrow)
+        painter.restore()
+
     def _paint_input_socket(self, painter: QPainter, rect: QRectF, type_name: str, port_key: str) -> None:
         if self.connected_input_node(port_key) is not None:
             return
+        field = self.config_field_for_port(port_key)
         painter.setPen(Qt.NoPen)
         painter.setBrush(with_alpha(QColor("#ffffff"), 220))
         if type_name == "boolean":
@@ -693,6 +680,19 @@ class NodeItem(QGraphicsObject):
             painter.drawPath(diamond)
         else:
             painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        if field is not None and field.field_type != "choice":
+            painter.save()
+            value_font = painter.font()
+            value_font.setPointSizeF(max(7.4, value_font.pointSizeF() if value_font.pointSizeF() > 0 else 8.0))
+            value_font.setBold(True)
+            painter.setFont(value_font)
+            painter.setPen(QColor("#5b6f96"))
+            painter.drawText(
+                rect.adjusted(12, 0, -12, 0),
+                Qt.AlignVCenter | Qt.AlignHCenter,
+                self.inline_input_text(port_key),
+            )
+            painter.restore()
 
     def hoverEnterEvent(self, event) -> None:
         self._hovered = True
@@ -706,6 +706,24 @@ class NodeItem(QGraphicsObject):
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
+            choice_key = self._choice_input_key_at(event.pos())
+            if choice_key is not None:
+                scene = self.scene()
+                if isinstance(scene, NodeScene):
+                    scene.clearSelection()
+                self.setSelected(True)
+                self._show_choice_menu(choice_key, event.screenPos())
+                event.accept()
+                return
+            editable_key = self._editable_input_key_at(event.pos())
+            if editable_key is not None:
+                scene = self.scene()
+                if isinstance(scene, NodeScene):
+                    scene.clearSelection()
+                self.setSelected(True)
+                self._show_input_editor(editable_key)
+                event.accept()
+                return
             self._press_scene_pos = event.scenePos()
             self._drag_started = False
         super().mousePressEvent(event)
@@ -760,6 +778,130 @@ class NodeItem(QGraphicsObject):
             event.accept()
             return
         super().contextMenuEvent(event)
+
+    def _choice_input_key_at(self, pos: QPointF) -> str | None:
+        for port_key, rect in self.choice_input_rects.items():
+            if rect.contains(pos):
+                return port_key
+        return None
+
+    def _editable_input_key_at(self, pos: QPointF) -> str | None:
+        for port_key, rect in self.input_socket_rects.items():
+            if not rect.contains(pos):
+                continue
+            if self.connected_input_node(port_key) is not None:
+                continue
+            field = self.config_field_for_port(port_key)
+            if field is None or field.field_type == "choice":
+                continue
+            if field.field_type not in {"text", "int", "float"}:
+                continue
+            return port_key
+        return None
+
+    def _show_choice_menu(self, port_key: str, screen_pos) -> None:
+        field = self.config_field_for_port(port_key)
+        if field is None or not field.choices:
+            return
+        menu = QMenu()
+        current = str(self.model.config.get(port_key, field.default))
+        actions = {}
+        for choice in field.choices:
+            action = menu.addAction(choice)
+            action.setCheckable(True)
+            action.setChecked(choice == current)
+            actions[action] = choice
+        selected = menu.exec(screen_pos)
+        if selected is None or selected not in actions:
+            return
+        next_value = actions[selected]
+        if next_value == current:
+            return
+        self.model.config[port_key] = next_value
+        self.refresh_layout()
+        scene = self.scene()
+        if isinstance(scene, NodeScene):
+            scene.handle_node_moved(self)
+            scene.project_dirty.emit()
+
+    def inline_input_text(self, port_key: str) -> str:
+        field = self.config_field_for_port(port_key)
+        if field is None:
+            return ""
+        value = self.model.config.get(port_key, field.default)
+        if field.field_type == "text":
+            text = str(value)
+            if len(text) > 18:
+                text = f"{text[:15]}..."
+            return text
+        if field.field_type == "int":
+            try:
+                return str(int(value))
+            except (TypeError, ValueError):
+                return str(field.default)
+        if field.field_type == "float":
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                number = float(field.default)
+            return str(int(number)) if number.is_integer() else f"{number:g}"
+        return str(value)
+
+    def _show_input_editor(self, port_key: str) -> None:
+        field = self.config_field_for_port(port_key)
+        if field is None:
+            return
+        title = self.definition.title
+        label = field.label or port_key
+        current = self.model.config.get(port_key, field.default)
+
+        if field.field_type == "text":
+            next_value, accepted = QInputDialog.getText(None, title, label, text=str(current))
+        elif field.field_type == "int":
+            default_value = self._coerce_int_value(current, int(field.default))
+            minimum = int(field.minimum) if field.minimum is not None else -2147483647
+            maximum = int(field.maximum) if field.maximum is not None else 2147483647
+            step = int(field.step) if field.step not in {None, 0} else 1
+            next_value, accepted = QInputDialog.getInt(None, title, label, default_value, minimum, maximum, step)
+        elif field.field_type == "float":
+            default_value = self._coerce_float_value(current, float(field.default))
+            minimum = float(field.minimum) if field.minimum is not None else -2147483647.0
+            maximum = float(field.maximum) if field.maximum is not None else 2147483647.0
+            step = float(field.step) if field.step not in {None, 0} else 1.0
+            decimals = 4 if step < 1 else 2
+            next_value, accepted = QInputDialog.getDouble(
+                None,
+                title,
+                label,
+                default_value,
+                minimum,
+                maximum,
+                decimals,
+                step,
+            )
+        else:
+            return
+
+        if not accepted:
+            return
+        self.model.config[port_key] = next_value
+        self.refresh_layout()
+        scene = self.scene()
+        if isinstance(scene, NodeScene):
+            scene.handle_node_moved(self)
+            scene.project_dirty.emit()
+
+    def _coerce_int_value(self, value: object, fallback: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    def _coerce_float_value(self, value: object, fallback: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
@@ -938,6 +1080,10 @@ class NodeScene(QGraphicsScene):
             self.error_message.emit("Connections between ports on the same node are disabled.")
             return None
 
+        if input_port.node_item.is_choice_input(input_port.definition.key):
+            self.error_message.emit("This input uses a dropdown and does not accept blocks.")
+            return None
+
         if not self._port_types_compatible(output_port.definition.type_name, input_port.definition.type_name):
             self.error_message.emit(
                 f"Wrong type: '{output_port.definition.type_name}' cannot connect to '{input_port.definition.type_name}'."
@@ -969,6 +1115,11 @@ class NodeScene(QGraphicsScene):
         if source_port is None or target_port is None:
             return
 
+        if source_port.definition.type_name != "flow":
+            existing_outgoing = self._outgoing_connection_for(source_port)
+            if existing_outgoing is not None:
+                self.remove_connection(existing_outgoing, emit_dirty=False)
+
         connection = ConnectionItem(source_port, target_port=target_port)
         source_port.connections.append(connection)
         target_port.connections.append(connection)
@@ -995,6 +1146,8 @@ class NodeScene(QGraphicsScene):
         if source_node is not None:
             source_node.refresh_layout()
             if connection_type != "flow":
+                if self._attachment_connection_for(source_node) is None:
+                    source_node.setZValue(1)
                 self.handle_node_moved(source_node)
         if emit_dirty:
             self.project_dirty.emit()
@@ -1199,6 +1352,8 @@ class NodeScene(QGraphicsScene):
                 for input_port in candidate.inputs.values():
                     if input_port.definition.type_name == "flow":
                         continue
+                    if candidate.is_choice_input(input_port.definition.key):
+                        continue
                     if not self._port_types_compatible(output_port.definition.type_name, input_port.definition.type_name):
                         continue
                     input_center = input_port.scene_center()
@@ -1262,6 +1417,7 @@ class NodeScene(QGraphicsScene):
             connection.update_path()
             return
 
+        source_node.setZValue(max(2, target_node.zValue() + 1))
         target_center = target_port.scene_center()
         source_center = source_port.scene_center()
         delta = target_center - source_center

@@ -41,7 +41,7 @@ class InspectorPanel(QFrame):
         self.title_label.setObjectName("DrawerTitle")
         layout.addWidget(self.title_label)
 
-        self.subtitle = QLabel("Select a node to inspect its configuration.")
+        self.subtitle = QLabel("Select a block to inspect its configuration.")
         self.subtitle.setObjectName("DrawerMuted")
         self.subtitle.setWordWrap(True)
         layout.addWidget(self.subtitle)
@@ -66,7 +66,7 @@ class InspectorPanel(QFrame):
 
         if not self.current_nodes:
             self.title_label.setText("Inspector")
-            self.subtitle.setText("Select a node to inspect its configuration.")
+            self.subtitle.setText("Select a block to inspect its configuration.")
             return
 
         if len(self.current_nodes) == 1:
@@ -79,8 +79,8 @@ class InspectorPanel(QFrame):
         grouped = self._group_nodes_by_type(self.current_nodes)
         self.title_label.setText("Multi-Selection")
         self.subtitle.setText(
-            f"Editing {len(self.current_nodes)} nodes across {len(grouped)} types. "
-            "Mixed values show ? and changes apply to every selected node of that type."
+            f"Editing {len(self.current_nodes)} blocks across {len(grouped)} types. "
+            "Mixed values show ? and changes apply to every selected block of that type."
         )
         for definition, nodes in grouped:
             self.content_layout.addWidget(self._build_group_section(definition, nodes, show_header=True))
@@ -125,7 +125,7 @@ class InspectorPanel(QFrame):
         form.setSpacing(10)
 
         if not definition.config_fields and definition.type_id != "get_pixel":
-            empty = QLabel("This node has no editable configuration.")
+            empty = QLabel("This block has no editable configuration.")
             empty.setObjectName("DrawerMuted")
             empty.setWordWrap(True)
             form.addRow(empty)
@@ -214,7 +214,7 @@ class InspectorPanel(QFrame):
             editor = QComboBox()
             if is_mixed:
                 editor.addItem("?", "__mixed__")
-                editor.setToolTip("Selected nodes have different values for this field.")
+                editor.setToolTip("Selected blocks have different values for this field.")
             for choice in field.choices:
                 editor.addItem(choice, choice)
             if is_mixed:
@@ -239,7 +239,7 @@ class InspectorPanel(QFrame):
                 editor.setValidator(QIntValidator(minimum, maximum, editor))
                 if is_mixed:
                     editor.setPlaceholderText("?")
-                    editor.setToolTip("Selected nodes have different values for this field.")
+                    editor.setToolTip("Selected blocks have different values for this field.")
                 else:
                     editor.setText(str(int(value)))
 
@@ -276,7 +276,7 @@ class InspectorPanel(QFrame):
                 editor.setValidator(validator)
                 if is_mixed:
                     editor.setPlaceholderText("?")
-                    editor.setToolTip("Selected nodes have different values for this field.")
+                    editor.setToolTip("Selected blocks have different values for this field.")
                 else:
                     editor.setText(str(float(value)))
 
@@ -307,7 +307,7 @@ class InspectorPanel(QFrame):
         editor = QLineEdit()
         if is_mixed:
             editor.setPlaceholderText("?")
-            editor.setToolTip("Selected nodes have different values for this field.")
+            editor.setToolTip("Selected blocks have different values for this field.")
         else:
             editor.setText(str(value))
         editor.textEdited.connect(lambda text: self._apply_value(field, node_items, text))
