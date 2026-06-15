@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import io
 import math
+import shutil
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -94,6 +97,18 @@ class GraphRuntime:
             self.log(f"[Branch] Condition evaluated to {condition}.")
             return ["true_flow"] if condition else ["false_flow"]
 
+        if node.type_id == "if_block":
+            condition = bool(self._value_for(node, "condition", False))
+            self.outputs_cache[node.node_id] = {"condition": condition}
+            self.log(f"[If] Condition evaluated to {condition}.")
+            return ["true_flow"] if condition else []
+
+        if node.type_id == "if_else_block":
+            condition = bool(self._value_for(node, "condition", False))
+            self.outputs_cache[node.node_id] = {"condition": condition}
+            self.log(f"[If Else] Condition evaluated to {condition}.")
+            return ["true_flow"] if condition else ["false_flow"]
+
         if node.type_id == "log_text":
             value = self._value_for(node, "value", node.config.get("value", ""))
             self.outputs_cache[node.node_id] = {"value": value}
@@ -109,23 +124,86 @@ class GraphRuntime:
             self.log(f"[Get Files] Found {len(files)} file(s) in {resolved_folder}.")
             return ["next"]
 
+        if node.type_id == "write_text_file":
+            raw_path = str(self._value_for(node, "path", "output.txt"))
+            text = str(self._value_for(node, "text", ""))
+            mode = str(node.config.get("mode", "overwrite"))
+            resolved_file = self._prepare_output_file(raw_path)
+            resolved_file.parent.mkdir(parents=True, exist_ok=True)
+            write_mode = "a" if mode == "append" else "w"
+            resolved_file.write_text(text, encoding="utf-8") if write_mode == "w" else self._append_text_file(
+                resolved_file, text
+            )
+            result = str(resolved_file.resolve())
+            self.outputs_cache[node.node_id] = {"saved_path": result}
+            self.log(f"[Write Text File] Saved {result}.")
+            return ["next"]
+
+        if node.type_id == "delete_file":
+            raw_path = str(self._value_for(node, "path", "output.txt"))
+            missing_ok = bool(node.config.get("missing_ok", True))
+            resolved_file = self._resolve_path(raw_path)
+            deleted = self._delete_file(resolved_file, missing_ok=missing_ok)
+            self.outputs_cache[node.node_id] = {"deleted": deleted}
+            self.log(f"[Delete File] {'Deleted' if deleted else 'Skipped'} {resolved_file}.")
+            return ["next"]
+
+        if node.type_id == "copy_file":
+            source = self._require_file(self._resolve_path(str(self._value_for(node, "source", ""))))
+            destination = self._resolve_path(str(self._value_for(node, "destination", "")))
+            overwrite = bool(node.config.get("overwrite", True))
+            if source.resolve() == destination.resolve():
+                raise RuntimeError("Copy File source and destination must be different.")
+            self._prepare_destination_file(destination, overwrite=overwrite)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            copied_path = shutil.copy2(source, destination)
+            result = str(Path(copied_path).resolve())
+            self.outputs_cache[node.node_id] = {"saved_path": result}
+            self.log(f"[Copy File] Copied {source} -> {result}.")
+            return ["next"]
+
+        if node.type_id == "move_file":
+            source = self._require_file(self._resolve_path(str(self._value_for(node, "source", ""))))
+            destination = self._resolve_path(str(self._value_for(node, "destination", "")))
+            overwrite = bool(node.config.get("overwrite", True))
+            if source.resolve() == destination.resolve():
+                result = str(source.resolve())
+                self.outputs_cache[node.node_id] = {"saved_path": result}
+                self.log(f"[Move File] Source and destination are the same: {result}.")
+                return ["next"]
+            self._prepare_destination_file(destination, overwrite=overwrite)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            moved_path = shutil.move(str(source), str(destination))
+            result = str(Path(moved_path).resolve())
+            self.outputs_cache[node.node_id] = {"saved_path": result}
+            self.log(f"[Move File] Moved {source} -> {result}.")
+            return ["next"]
+
         if node.type_id == "take_screenshot":
             import mss
-            import mss.tools
 
             file_path = str(self._value_for(node, "file_path", "captures/capture_{timestamp}.png"))
-            resolved_file = self._prepare_output_file(file_path)
-            resolved_file.parent.mkdir(parents=True, exist_ok=True)
             with mss.mss() as screen_capture:
                 screenshot = screen_capture.grab(screen_capture.monitors[0])
+            image_payload = self._image_payload_from_rgb(screenshot.rgb, screenshot.size)
+
+            saved_path = ""
+            if file_path.strip():
+                import mss.tools
+
+                resolved_file = self._prepare_output_file(file_path)
+                resolved_file.parent.mkdir(parents=True, exist_ok=True)
                 mss.tools.to_png(screenshot.rgb, screenshot.size, output=str(resolved_file))
-            image_payload = self._image_payload(resolved_file)
-            result = str(resolved_file.resolve())
+                saved_path = str(resolved_file.resolve())
+                image_payload["path"] = saved_path
+                self.log(f"[Take Screenshot] Saved {saved_path}.")
+            else:
+                self.log("[Take Screenshot] Captured image in memory.")
+
             self.outputs_cache[node.node_id] = {
-                "saved_path": result,
+                "saved_path": saved_path,
                 "image": image_payload,
             }
-            self.log(f"[Take Screenshot] Saved {result}.")
             return ["next"]
 
         if node.type_id == "get_pixel":
@@ -236,26 +314,26 @@ class GraphRuntime:
         if node.type_id == "math_operation":
             left = float(self._value_for(node, "left", 0.0))
             right = float(self._value_for(node, "right", 0.0))
-            operator = str(node.config.get("operator", "add"))
+            operator = self._normalize_math_operator(node.config.get("operator", "+"))
             operations = {
-                "add": left + right,
-                "subtract": left - right,
-                "multiply": left * right,
-                "divide": left / right if not math.isclose(right, 0.0) else 0.0,
+                "+": left + right,
+                "-": left - right,
+                "*": left * right,
+                "/": left / right if not math.isclose(right, 0.0) else 0.0,
             }
             return {"result": operations[operator]}
 
         if node.type_id == "compare_numbers":
             left = float(self._value_for(node, "left", 0.0))
             right = float(self._value_for(node, "right", 0.0))
-            operator = str(node.config.get("operator", "greater_than"))
+            operator = self._normalize_compare_operator(node.config.get("operator", ">"))
             comparisons = {
-                "greater_than": left > right,
-                "greater_or_equal": left >= right,
-                "equal": math.isclose(left, right),
-                "less_or_equal": left <= right,
-                "less_than": left < right,
-                "not_equal": not math.isclose(left, right),
+                ">": left > right,
+                ">=": left >= right,
+                "=": math.isclose(left, right),
+                "<=": left <= right,
+                "<": left < right,
+                "!=": not math.isclose(left, right),
             }
             return {"result": comparisons[operator]}
 
@@ -264,6 +342,31 @@ class GraphRuntime:
             second = str(self._value_for(node, "second", ""))
             separator = str(node.config.get("separator", " "))
             return {"result": f"{first}{separator}{second}"}
+
+        if node.type_id == "replace_text":
+            source = str(self._value_for(node, "source", ""))
+            find = str(self._value_for(node, "find", ""))
+            replace = str(self._value_for(node, "replace", ""))
+            return {"result": source.replace(find, replace)}
+
+        if node.type_id == "text_contains":
+            source = str(self._value_for(node, "source", ""))
+            search = str(self._value_for(node, "search", ""))
+            return {"result": search in source}
+
+        if node.type_id == "boolean_not":
+            value = bool(self._value_for(node, "value", False))
+            return {"result": not value}
+
+        if node.type_id == "boolean_and":
+            left = bool(self._value_for(node, "left", False))
+            right = bool(self._value_for(node, "right", False))
+            return {"result": left and right}
+
+        if node.type_id == "boolean_or":
+            left = bool(self._value_for(node, "left", False))
+            right = bool(self._value_for(node, "right", False))
+            return {"result": left or right}
 
         if node.type_id == "files_count":
             files = self._value_for(node, "files", [])
@@ -277,6 +380,20 @@ class GraphRuntime:
         if node.type_id == "file_exists":
             value = str(self._value_for(node, "path", ""))
             return {"exists": self._resolve_path(value).exists()}
+
+        if node.type_id == "read_text_file":
+            value = str(self._value_for(node, "path", ""))
+            path = self._require_file(self._resolve_path(value))
+            return {"text": path.read_text(encoding="utf-8")}
+
+        if node.type_id == "path_join":
+            folder = str(self._value_for(node, "folder", "."))
+            name = str(self._value_for(node, "name", ""))
+            return {"path": str(Path(folder) / name)}
+
+        if node.type_id == "file_name":
+            value = str(self._value_for(node, "path", ""))
+            return {"name": Path(value).name}
 
         raise RuntimeError(f"Unsupported pure node: {definition.title}")
 
@@ -315,6 +432,17 @@ class GraphRuntime:
             raise RuntimeError(f"Image file not found: {image_path}")
         return image_path
 
+    def _resolve_image_data(self, image_value: Any, file_path_value: Any) -> bytes:
+        if isinstance(image_value, dict) and image_value.get("kind") == "image":
+            if image_value.get("data_base64"):
+                return base64.b64decode(str(image_value["data_base64"]))
+            if image_value.get("path"):
+                image_path = self._resolve_image_source(image_value, file_path_value)
+                return image_path.read_bytes()
+
+        image_path = self._resolve_image_source(image_value, file_path_value)
+        return image_path.read_bytes()
+
     def _pixel_outputs(self, x: int, y: int, red: int, green: int, blue: int) -> dict[str, Any]:
         pixel_value = {"r": red, "g": green, "b": blue, "x": x, "y": y}
         return {
@@ -331,3 +459,71 @@ class GraphRuntime:
                 raise RuntimeError("Execution stopped.")
             remaining = end_time - time.time()
             time.sleep(min(0.05, max(0.0, remaining)))
+
+    def _normalize_math_operator(self, operator: Any) -> str:
+        raw = str(operator)
+        mapping = {
+            "add": "+",
+            "subtract": "-",
+            "multiply": "*",
+            "divide": "/",
+        }
+        if raw in {"+", "-", "*", "/"}:
+            return raw
+        return mapping.get(raw, "+")
+
+    def _normalize_compare_operator(self, operator: Any) -> str:
+        raw = str(operator)
+        mapping = {
+            "greater_than": ">",
+            "less_than": "<",
+            "equal": "=",
+            "greater_or_equal": ">=",
+            "less_or_equal": "<=",
+            "not_equal": "!=",
+        }
+        if raw in {">", "<", "=", ">=", "<=", "!="}:
+            return raw
+        return mapping.get(raw, ">")
+
+    def _append_text_file(self, path: Path, text: str) -> None:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(text)
+
+    def _delete_file(self, path: Path, missing_ok: bool) -> bool:
+        if not path.exists():
+            if missing_ok:
+                return False
+            raise RuntimeError(f"File not found: {path}")
+        if path.is_dir():
+            raise RuntimeError(f"Delete File only supports files, not folders: {path}")
+        path.unlink()
+        return True
+
+    def _require_file(self, path: Path) -> Path:
+        if not path.exists():
+            raise RuntimeError(f"File not found: {path}")
+        if path.is_dir():
+            raise RuntimeError(f"Expected a file but got a folder: {path}")
+        return path
+
+    def _prepare_destination_file(self, path: Path, overwrite: bool) -> None:
+        if path.exists() and path.is_dir():
+            raise RuntimeError(f"Destination must be a file path, not a folder: {path}")
+        if path.exists() and not overwrite:
+            raise RuntimeError(f"Destination file already exists: {path}")
+        if path.exists() and overwrite:
+            path.unlink()
+
+    def _image_payload_from_rgb(self, rgb_bytes: bytes, size: Any) -> dict[str, str]:
+        from PIL import Image
+
+        width, height = int(size.width), int(size.height)
+        image = Image.frombytes("RGB", (width, height), rgb_bytes)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return {
+            "kind": "image",
+            "data_base64": encoded,
+        }
