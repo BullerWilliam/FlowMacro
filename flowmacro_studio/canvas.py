@@ -50,8 +50,33 @@ class PortItem(QGraphicsObject):
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         base_color = port_color(self.definition.type_name)
-        glow_color = with_alpha(base_color, 95 if self._hovered else 42)
+        glow_color = with_alpha(base_color, 95 if self._hovered else 32)
         painter.setRenderHint(QPainter.Antialiasing, True)
+
+        if self.definition.type_name == "flow":
+            rect = QRectF(-12, -4, 24, 8)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(glow_color)
+            painter.setBrush(QColor("#ffffff"))
+            painter.drawRoundedRect(rect, 5, 5)
+            painter.setBrush(base_color)
+            painter.drawRoundedRect(rect.adjusted(2, 1, -2, -1), 4, 4)
+            return
+
+        if self.definition.type_name == "boolean":
+            diamond = QPainterPath()
+            diamond.moveTo(0, -9)
+            diamond.lineTo(10, 0)
+            diamond.lineTo(0, 9)
+            diamond.lineTo(-10, 0)
+            diamond.closeSubpath()
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(glow_color)
+            painter.drawPath(diamond)
+            painter.setPen(QPen(QColor("#ffffff"), 1.2))
+            painter.setBrush(base_color)
+            painter.drawPath(diamond.simplified())
+            return
 
         painter.setPen(Qt.NoPen)
         painter.setBrush(glow_color)
@@ -131,14 +156,23 @@ class ConnectionItem(QGraphicsPathItem):
         end = self.target_port.scene_center() if self.target_port else (end_pos or self.end_pos)
         self.end_pos = end
 
-        horizontal_distance = abs(end.x() - start.x())
-        distance = max(68.0, min(180.0, horizontal_distance * 0.55))
         path = QPainterPath(start)
-        path.cubicTo(
-            QPointF(start.x() + distance, start.y()),
-            QPointF(end.x() - distance, end.y()),
-            end,
-        )
+        if self.source_port.definition.type_name == "flow":
+            vertical_distance = max(26.0, abs(end.y() - start.y()) * 0.5)
+            horizontal_shift = (end.x() - start.x()) * 0.28
+            path.cubicTo(
+                QPointF(start.x(), start.y() + vertical_distance),
+                QPointF(end.x() - horizontal_shift, end.y() - vertical_distance),
+                end,
+            )
+        else:
+            horizontal_distance = abs(end.x() - start.x())
+            distance = max(54.0, min(150.0, horizontal_distance * 0.5))
+            path.cubicTo(
+                QPointF(start.x() + distance, start.y()),
+                QPointF(end.x() - distance, end.y()),
+                end,
+            )
         self.setPath(path)
         self.update()
 
@@ -154,17 +188,35 @@ class ConnectionItem(QGraphicsPathItem):
         painter.setRenderHint(QPainter.Antialiasing, True)
         color = port_color(self.source_port.definition.type_name)
         path = self.path()
+        is_flow = self.source_port.definition.type_name == "flow"
+
+        if is_flow and self.target_port and not self.preview and not self.isSelected() and not self._hovered:
+            start = self.source_port.scene_center()
+            end = self.target_port.scene_center()
+            if abs(start.x() - end.x()) < 28 and 0 <= end.y() - start.y() <= 120:
+                return
+
+        if not is_flow and self.target_port and not self.preview and not self.isSelected() and not self._hovered:
+            source_rect = self.source_port.node_item.sceneBoundingRect()
+            target_rect = self.target_port.node_item.sceneBoundingRect().adjusted(-8, -8, 8, 8)
+            if target_rect.intersects(source_rect):
+                return
 
         if self.preview:
-            glow_width = 6.0
-            core_width = 2.0
-            glow_alpha = 70
-            core_color = with_alpha(color, 225)
+            glow_width = 5.0 if is_flow else 6.0
+            core_width = 1.6 if is_flow else 2.0
+            glow_alpha = 55 if is_flow else 70
+            core_color = with_alpha(color, 210 if is_flow else 225)
         else:
             active = self.isSelected() or self._hovered
-            glow_width = 8.0 if active else 6.2
-            core_width = 2.8 if active else 2.2
-            glow_alpha = 120 if active else 62
+            if is_flow:
+                glow_width = 5.5 if active else 3.8
+                core_width = 1.8 if active else 1.2
+                glow_alpha = 90 if active else 18
+            else:
+                glow_width = 8.0 if active else 6.2
+                core_width = 2.8 if active else 2.2
+                glow_alpha = 120 if active else 62
             core_color = color.darker(105) if active else color
 
         glow_pen = QPen(with_alpha(color, glow_alpha), glow_width)
@@ -172,8 +224,9 @@ class ConnectionItem(QGraphicsPathItem):
         painter.setPen(glow_pen)
         painter.drawPath(path)
 
-        painter.setPen(QPen(with_alpha(QColor("#ffffff"), 190), core_width + 1.2))
-        painter.drawPath(path)
+        if not is_flow:
+            painter.setPen(QPen(with_alpha(QColor("#ffffff"), 190), core_width + 1.2))
+            painter.drawPath(path)
 
         core_pen = QPen(core_color, core_width)
         core_pen.setCapStyle(Qt.RoundCap)
@@ -206,14 +259,14 @@ class ConnectionItem(QGraphicsPathItem):
 
 
 class NodeItem(QGraphicsObject):
-    width = 248.0
-
     def __init__(self, model: NodeModel, definition: NodeDefinition) -> None:
         super().__init__()
         self.model = model
         self.definition = definition
         self.inputs: dict[str, PortItem] = {}
         self.outputs: dict[str, PortItem] = {}
+        self.input_socket_rects: dict[str, QRectF] = {}
+        self.width = 248.0
         self.height = 120.0
         self._hovered = False
         self._press_scene_pos: QPointF | None = None
@@ -239,19 +292,74 @@ class NodeItem(QGraphicsObject):
         return [*self.inputs.values(), *self.outputs.values()]
 
     def refresh_layout(self) -> None:
-        port_top = 58.0
-        spacing = 26.0
-        summary_lines = self.summary_lines()
-        summary_height = max(30.0, 16.0 * len(summary_lines) + 14.0)
-        self.height = max(
-            124.0,
-            port_top + max(len(self.inputs), len(self.outputs), 1) * spacing + summary_height + 8.0,
-        )
+        data_inputs = [port for port in self.definition.inputs if port.type_name != "flow"]
+        data_outputs = [port for port in self.definition.outputs if port.type_name != "flow"]
+        self.input_socket_rects = {}
+
+        if self.is_command_block:
+            current_y = 31.0
+            max_socket_width = 88.0
+            for port in data_inputs:
+                child = self.connected_input_node(port.key)
+                slot_width = max(72.0, (child.width + 12.0) if child is not None else 88.0)
+                slot_height = max(22.0, (child.height + 8.0) if child is not None else 22.0)
+                self.input_socket_rects[port.key] = QRectF(96.0, current_y - 11.0, slot_width, slot_height)
+                max_socket_width = max(max_socket_width, slot_width)
+                current_y += slot_height + 6.0
+            self.width = max(238.0, 118.0 + max_socket_width)
+            rows = max(len(data_inputs), len(data_outputs), 1)
+            self.height = max(62.0, current_y + 9.0 if data_inputs else 62.0, 38.0 + rows * 24.0 + 16.0)
+        elif self.is_boolean_reporter:
+            current_y = 28.0
+            max_socket_width = 68.0
+            for port in data_inputs:
+                child = self.connected_input_node(port.key)
+                slot_width = max(64.0, (child.width + 10.0) if child is not None else 68.0)
+                slot_height = max(18.0, (child.height + 6.0) if child is not None else 18.0)
+                self.input_socket_rects[port.key] = QRectF(52.0, current_y - 9.0, slot_width, slot_height)
+                max_socket_width = max(max_socket_width, slot_width)
+                current_y += slot_height + 4.0
+            self.width = max(168.0, 76.0 + max_socket_width)
+            self.height = max(42.0, current_y + 8.0 if data_inputs else 42.0)
+        else:
+            current_y = 26.0
+            max_socket_width = 76.0
+            for port in data_inputs:
+                child = self.connected_input_node(port.key)
+                slot_width = max(72.0, (child.width + 10.0) if child is not None else 76.0)
+                slot_height = max(18.0, (child.height + 6.0) if child is not None else 18.0)
+                self.input_socket_rects[port.key] = QRectF(42.0, current_y - 9.0, slot_width, slot_height)
+                max_socket_width = max(max_socket_width, slot_width)
+                current_y += slot_height + 4.0
+            self.width = max(150.0, 58.0 + max_socket_width)
+            self.height = max(36.0, current_y + 8.0 if data_inputs else 36.0)
+
         self.prepareGeometryChange()
-        for index, port in enumerate(self.definition.inputs):
-            self.inputs[port.key].setPos(0.0, port_top + index * spacing)
-        for index, port in enumerate(self.definition.outputs):
-            self.outputs[port.key].setPos(self.width, port_top + index * spacing)
+
+        flow_inputs = [port for port in self.definition.inputs if port.type_name == "flow"]
+        flow_outputs = [port for port in self.definition.outputs if port.type_name == "flow"]
+        for port in flow_inputs:
+            self.inputs[port.key].setPos(self.flow_anchor_x(), 0.0)
+        for index, port in enumerate(flow_outputs):
+            self.outputs[port.key].setPos(self.flow_output_x(index, len(flow_outputs)), self.height)
+
+        if self.is_command_block:
+            for port in data_inputs:
+                socket = self.input_socket_rects.get(port.key, QRectF(96.0, 20.0, 88.0, 22.0))
+                self.inputs[port.key].setPos(socket.left() + 10.0, socket.center().y())
+            for index, port in enumerate(data_outputs):
+                self.outputs[port.key].setPos(self.width - 14.0, 31.0 + index * 24.0)
+        else:
+            total_inputs = len(data_inputs)
+            total_outputs = len(data_outputs)
+            for index, port in enumerate(data_inputs):
+                socket = self.input_socket_rects.get(port.key)
+                if socket is not None:
+                    self.inputs[port.key].setPos(socket.left() + 10.0, socket.center().y())
+                else:
+                    self.inputs[port.key].setPos(10.0, self._reporter_port_y(index, total_inputs))
+            for index, port in enumerate(data_outputs):
+                self.outputs[port.key].setPos(self.width - 10.0, self._reporter_port_y(index, total_outputs))
         self.update()
 
     def summary_lines(self) -> list[str]:
@@ -275,115 +383,234 @@ class NodeItem(QGraphicsObject):
         return QRectF(-14, -14, self.width + 28, self.height + 28)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        rect = QRectF(0, 0, self.width, self.height)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         accent = QColor(self.definition.color)
-        outline_color = accent.darker(110) if self.isSelected() else QColor("#d7e1f2")
+        outline_color = accent.darker(118) if self.isSelected() else accent.darker(110)
         if self._hovered and not self.isSelected():
             outline_color = accent.lighter(118)
 
-        shadow_rect = rect.adjusted(3, 6, 3, 12)
+        block_path = self.block_path()
+        shadow_path = QPainterPath(block_path)
+        shadow_rect = block_path.boundingRect().translated(3, 5)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(112, 146, 198, 38))
-        painter.drawRoundedRect(shadow_rect, 14, 14)
+        painter.drawPath(shadow_path.translated(3, 5))
 
         if self.isSelected():
             painter.setBrush(with_alpha(accent, 35))
-            painter.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), 16, 16)
+            painter.drawPath(block_path.translated(-2, -2))
 
-        painter.setPen(QPen(outline_color, 1.4))
-        painter.setBrush(QColor("#ffffff"))
-        painter.drawRoundedRect(rect, 13, 13)
+        fill_gradient = QLinearGradient(0, 0, self.width, self.height)
+        fill_gradient.setColorAt(0.0, accent.lighter(116))
+        fill_gradient.setColorAt(1.0, accent.darker(108))
+        painter.setPen(QPen(outline_color, 1.3))
+        painter.setBrush(fill_gradient)
+        painter.drawPath(block_path)
 
-        accent_strip = QRectF(0, 0, self.width, 40)
-        accent_gradient = QLinearGradient(accent_strip.topLeft(), accent_strip.topRight())
-        accent_gradient.setColorAt(0.0, accent.lighter(112))
-        accent_gradient.setColorAt(1.0, accent.darker(108))
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(accent_gradient)
-        painter.drawRoundedRect(accent_strip, 13, 13)
-        painter.drawRect(0, 18, self.width, 22)
+        painter.setPen(with_alpha(QColor("#ffffff"), 55))
+        painter.drawPath(self.highlight_path())
 
         painter.setPen(QColor("#ffffff"))
         title_font = painter.font()
-        title_font.setPointSize(10.5)
+        title_font.setPointSize(10 if self.is_command_block else 9.5)
         title_font.setBold(True)
         painter.setFont(title_font)
-        painter.drawText(QRectF(14, 10, self.width - 96, 22), self.definition.title)
+        painter.drawText(self.title_rect(), self.definition.title)
 
-        chip_text = self.definition.category.upper()
-        chip_rect = QRectF(self.width - 82, 10, 68, 20)
-        painter.setPen(QPen(with_alpha(QColor("#ffffff"), 165), 1))
-        painter.setBrush(with_alpha(QColor("#ffffff"), 40))
-        painter.drawRoundedRect(chip_rect, 8, 8)
-        chip_font = painter.font()
-        chip_font.setPointSize(7)
-        chip_font.setBold(True)
-        painter.setFont(chip_font)
-        painter.setPen(QColor("#ffffff"))
-        painter.drawText(chip_rect, Qt.AlignCenter, chip_text)
+        detail_font = painter.font()
+        detail_font.setPointSize(7.5)
+        detail_font.setBold(False)
+        painter.setFont(detail_font)
+        painter.setPen(with_alpha(QColor("#ffffff"), 230))
+        for index, line in enumerate(self.summary_lines()[:2]):
+            painter.drawText(self.detail_rect(index), line)
 
-        port_name_font = painter.font()
-        port_name_font.setPointSize(8.3)
-        port_name_font.setBold(True)
-        type_font = painter.font()
-        type_font.setPointSize(7)
-        type_font.setBold(False)
+        if self.is_command_block:
+            self._paint_command_ports(painter)
+        else:
+            self._paint_reporter_ports(painter)
+
+    def _paint_command_ports(self, painter: QPainter) -> None:
+        label_font = painter.font()
+        label_font.setPointSize(7.6)
+        label_font.setBold(True)
+        painter.setFont(label_font)
 
         for port in self.definition.inputs:
+            if port.type_name == "flow":
+                continue
             item = self.inputs[port.key]
-            port_y = item.y()
-            wire_color = port_color(port.type_name)
-            painter.setPen(QPen(with_alpha(wire_color, 180), 1.2))
-            painter.drawLine(0, port_y, 14, port_y)
-            painter.setFont(port_name_font)
-            painter.setPen(QColor("#2d4164"))
-            painter.drawText(QRectF(16, port_y - 9, 118, 13), port.label)
-            if port.type_name != "flow":
-                painter.setFont(type_font)
-                painter.setPen(with_alpha(wire_color, 220))
-                painter.drawText(QRectF(16, port_y + 4, 80, 12), port.type_name)
+            y = item.y()
+            painter.setPen(QColor("#ffffff"))
+            painter.drawText(QRectF(28, y - 10, 60, 20), Qt.AlignVCenter | Qt.AlignLeft, port.label)
+            socket = self.input_socket_rects.get(port.key)
+            if socket is not None:
+                self._paint_input_socket(painter, socket, port.type_name, port.key)
 
-        for port in self.definition.outputs:
+        painter.setPen(with_alpha(QColor("#ffffff"), 235))
+        for index, port in enumerate([port for port in self.definition.outputs if port.type_name != "flow"]):
             item = self.outputs[port.key]
-            port_y = item.y()
-            wire_color = port_color(port.type_name)
-            painter.setPen(QPen(with_alpha(wire_color, 180), 1.2))
-            painter.drawLine(self.width - 14, port_y, self.width, port_y)
-            painter.setFont(port_name_font)
-            painter.setPen(QColor("#2d4164"))
             painter.drawText(
-                QRectF(self.width - 134, port_y - 9, 118, 13),
-                Qt.AlignRight,
+                QRectF(self.width - 112, item.y() - 8, 84, 14),
+                Qt.AlignRight | Qt.AlignVCenter,
                 port.label,
             )
-            if port.type_name != "flow":
-                painter.setFont(type_font)
-                painter.setPen(with_alpha(wire_color, 220))
-                painter.drawText(
-                    QRectF(self.width - 98, port_y + 4, 82, 12),
-                    Qt.AlignRight,
-                    port.type_name,
-                )
 
-        lines = self.summary_lines()
-        summary_height = max(30.0, 16.0 * len(lines) + 14.0)
-        summary_top = self.height - summary_height - 10.0
+    def _paint_reporter_ports(self, painter: QPainter) -> None:
+        label_font = painter.font()
+        label_font.setPointSize(8)
+        label_font.setBold(True)
+        painter.setFont(label_font)
+        painter.setPen(QColor("#ffffff"))
+
+        if self.is_boolean_reporter:
+            painter.drawText(QRectF(18, 8, self.width - 36, 18), Qt.AlignCenter, self.definition.title)
+        else:
+            painter.drawText(QRectF(16, 8, self.width - 32, 18), Qt.AlignCenter, self.definition.title)
+            detail_font = painter.font()
+            detail_font.setPointSize(7.4)
+            detail_font.setBold(False)
+            painter.setFont(detail_font)
+            for index, line in enumerate(self.summary_lines()[:1]):
+                painter.drawText(QRectF(18, 24 + index * 14, self.width - 36, 14), Qt.AlignCenter, line)
+
+        painter.setFont(label_font)
+        painter.setPen(QColor("#ffffff"))
+        for port in self.definition.inputs:
+            if port.type_name == "flow":
+                continue
+            socket = self.input_socket_rects.get(port.key)
+            if socket is None:
+                continue
+            label_rect = QRectF(18, socket.top() - 1, max(22.0, socket.left() - 22.0), socket.height())
+            painter.drawText(label_rect, Qt.AlignVCenter | Qt.AlignRight, port.label)
+            self._paint_input_socket(painter, socket, port.type_name, port.key)
+
+    @property
+    def is_command_block(self) -> bool:
+        return self.definition.is_flow_node
+
+    @property
+    def is_boolean_reporter(self) -> bool:
+        non_flow_outputs = [port for port in self.definition.outputs if port.type_name != "flow"]
+        return not self.definition.is_flow_node and bool(non_flow_outputs) and non_flow_outputs[0].type_name == "boolean"
+
+    def flow_anchor_x(self) -> float:
+        return 38.0
+
+    def flow_output_x(self, index: int, total: int) -> float:
+        if total <= 1:
+            return self.flow_anchor_x()
+        return 46.0 + index * (self.width - 92.0) / max(total - 1, 1)
+
+    def _reporter_port_y(self, index: int, total: int) -> float:
+        if total <= 1:
+            return self.height / 2
+        top = self.height / 2 - (total - 1) * 9.0
+        return top + index * 18.0
+
+    def title_rect(self) -> QRectF:
+        if self.is_command_block:
+            return QRectF(52, 10, self.width - 66, 16)
+        return QRectF(18, 8, self.width - 36, 18)
+
+    def detail_rect(self, index: int) -> QRectF:
+        if self.is_command_block:
+            return QRectF(28, 30 + index * 12, self.width - 58, 12)
+        return QRectF(18, 24 + index * 12, self.width - 36, 12)
+
+    def block_path(self) -> QPainterPath:
+        if self.is_command_block:
+            return self._command_path()
+        if self.is_boolean_reporter:
+            return self._boolean_path()
+        return self._reporter_path()
+
+    def highlight_path(self) -> QPainterPath:
+        path = self.block_path()
+        rect = path.boundingRect().adjusted(6, 5, -24, -self.height * 0.55)
+        highlight = QPainterPath()
+        highlight.addRoundedRect(rect, 10, 10)
+        return highlight
+
+    def _command_path(self) -> QPainterPath:
+        notch_x = self.flow_anchor_x() - 18.0
+        notch_w = 26.0
+        notch_h = 7.0
+        radius = 11.0
+
+        path = QPainterPath(QPointF(radius, 0))
+        if self.definition.flow_input_keys:
+            path.lineTo(notch_x, 0)
+            path.lineTo(notch_x + 4, notch_h)
+            path.lineTo(notch_x + notch_w - 4, notch_h)
+            path.lineTo(notch_x + notch_w, 0)
+        path.lineTo(self.width - radius, 0)
+        path.quadTo(self.width, 0, self.width, radius)
+        path.lineTo(self.width, self.height - radius)
+        path.quadTo(self.width, self.height, self.width - radius, self.height)
+
+        if self.definition.flow_output_keys:
+            tab_x = self.flow_anchor_x() - 20.0
+            tab_w = 32.0
+            tab_h = 8.0
+            path.lineTo(tab_x + tab_w, self.height)
+            path.lineTo(tab_x + tab_w - 4, self.height + tab_h)
+            path.lineTo(tab_x + 4, self.height + tab_h)
+            path.lineTo(tab_x, self.height)
+
+        path.lineTo(radius, self.height)
+        path.quadTo(0, self.height, 0, self.height - radius)
+        path.lineTo(0, radius)
+        path.quadTo(0, 0, radius, 0)
+        path.closeSubpath()
+        return path
+
+    def _reporter_path(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, self.width, self.height), self.height / 2.2, self.height / 2.2)
+        return path
+
+    def _boolean_path(self) -> QPainterPath:
+        path = QPainterPath()
+        mid_y = self.height / 2
+        inset = 20.0
+        path.moveTo(inset, 0)
+        path.lineTo(self.width - inset, 0)
+        path.lineTo(self.width, mid_y)
+        path.lineTo(self.width - inset, self.height)
+        path.lineTo(inset, self.height)
+        path.lineTo(0, mid_y)
+        path.closeSubpath()
+        return path
+
+    def connected_input_node(self, port_key: str) -> "NodeItem | None":
+        port = self.inputs.get(port_key)
+        if port is None:
+            return None
+        for connection in port.connections:
+            if connection.target_port is port:
+                return connection.source_port.node_item
+        return None
+
+    def _paint_input_socket(self, painter: QPainter, rect: QRectF, type_name: str, port_key: str) -> None:
+        if self.connected_input_node(port_key) is not None:
+            return
         painter.setPen(Qt.NoPen)
-        painter.setBrush(with_alpha(accent, 22))
-        painter.drawRoundedRect(QRectF(10, summary_top - 6, self.width - 20, summary_height + 8), 12, 12)
-
-        painter.setFont(type_font)
-        painter.setPen(QColor("#5d7398"))
-        painter.drawText(QRectF(14, summary_top, 64, 12), "STATUS")
-
-        painter.setPen(QColor("#3e5479"))
-        for index, line in enumerate(lines):
-            painter.drawText(
-                QRectF(14, summary_top + 12 + index * 14.0, self.width - 28, 13),
-                line,
-            )
+        painter.setBrush(with_alpha(QColor("#ffffff"), 220))
+        if type_name == "boolean":
+            diamond = QPainterPath()
+            diamond.moveTo(rect.left() + 10, rect.top())
+            diamond.lineTo(rect.right() - 10, rect.top())
+            diamond.lineTo(rect.right(), rect.center().y())
+            diamond.lineTo(rect.right() - 10, rect.bottom())
+            diamond.lineTo(rect.left() + 10, rect.bottom())
+            diamond.lineTo(rect.left(), rect.center().y())
+            diamond.closeSubpath()
+            painter.drawPath(diamond)
+        else:
+            painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
 
     def hoverEnterEvent(self, event) -> None:
         self._hovered = True
@@ -454,6 +681,7 @@ class NodeItem(QGraphicsObject):
                     connection.update_path()
             scene = self.scene()
             if isinstance(scene, NodeScene):
+                scene.handle_node_moved(self)
                 scene.project_dirty.emit()
         return super().itemChange(change, value)
 
@@ -472,6 +700,7 @@ class NodeScene(QGraphicsScene):
         self.connection_items: list[ConnectionItem] = []
         self.drag_source: PortItem | None = None
         self.preview_connection: ConnectionItem | None = None
+        self._layouting_flow = False
         self.setSceneRect(-6000, -6000, 12000, 12000)
         self.selectionChanged.connect(self._emit_selected_node)
 
@@ -652,15 +881,23 @@ class NodeScene(QGraphicsScene):
         target_port.connections.append(connection)
         self.connection_items.append(connection)
         self.addItem(connection)
-        connection.update_path()
+        self._align_connection(connection)
         if emit_dirty:
             self.project_dirty.emit()
 
     def remove_connection(self, connection: ConnectionItem, emit_dirty: bool = True) -> None:
+        source_node = connection.source_port.node_item
+        target_node = connection.target_port.node_item if connection.target_port is not None else None
+        connection_type = connection.source_port.definition.type_name
         connection.detach()
         if connection in self.connection_items:
             self.connection_items.remove(connection)
         self.removeItem(connection)
+        if target_node is not None and connection_type != "flow":
+            target_node.refresh_layout()
+            self.handle_node_moved(target_node)
+        if source_node is not None:
+            source_node.refresh_layout()
         if emit_dirty:
             self.project_dirty.emit()
 
@@ -707,6 +944,91 @@ class NodeScene(QGraphicsScene):
 
     def _emit_selected_node(self) -> None:
         self.node_selected.emit(self.selected_node_items())
+
+    def handle_node_moved(self, node_item: NodeItem) -> None:
+        if self._layouting_flow:
+            return
+        self._layouting_flow = True
+        try:
+            attached = self._attachment_connection_for(node_item)
+            if attached is not None:
+                self._align_connection(attached)
+            self._layout_descendants(node_item, visited=set())
+        finally:
+            self._layouting_flow = False
+
+    def _layout_descendants(self, node_item: NodeItem, visited: set[str]) -> None:
+        if node_item.model.node_id in visited:
+            return
+        visited.add(node_item.model.node_id)
+
+        for input_port in node_item.inputs.values():
+            if input_port.definition.type_name == "flow":
+                continue
+            for connection in list(input_port.connections):
+                if connection.target_port is not input_port:
+                    continue
+                self._align_connection(connection)
+                self._layout_descendants(connection.source_port.node_item, visited)
+
+        for output_port in node_item.outputs.values():
+            for connection in list(output_port.connections):
+                target_port = connection.target_port
+                if target_port is None:
+                    continue
+                self._align_connection(connection)
+                if output_port.definition.type_name == "flow":
+                    self._layout_descendants(target_port.node_item, visited)
+                else:
+                    self._layout_descendants(output_port.node_item, visited)
+
+    def _stack_flow_connection(self, source_node: NodeItem, target_node: NodeItem, output_key: str) -> None:
+        output_keys = source_node.definition.flow_output_keys
+        if output_key not in output_keys:
+            return
+        index = output_keys.index(output_key)
+        target_x = source_node.pos().x() + source_node.flow_output_x(index, len(output_keys)) - target_node.flow_anchor_x()
+        target_y = source_node.pos().y() + source_node.height
+        target_node.setPos(target_x, target_y)
+
+    def _align_connection(self, connection: ConnectionItem) -> None:
+        source_port = connection.source_port
+        target_port = connection.target_port
+        if target_port is None:
+            connection.update_path()
+            return
+
+        source_node = source_port.node_item
+        target_node = target_port.node_item
+        source_node.refresh_layout()
+        target_node.refresh_layout()
+
+        if source_port.definition.type_name == "flow":
+            self._stack_flow_connection(source_node, target_node, source_port.definition.key)
+            connection.update_path()
+            return
+
+        target_center = target_port.scene_center()
+        source_center = source_port.scene_center()
+        delta = target_center - source_center
+        source_node.setPos(source_node.pos() + delta)
+        connection.update_path()
+
+    def _attachment_connection_for(self, node_item: NodeItem) -> ConnectionItem | None:
+        for port in node_item.inputs.values():
+            if port.definition.type_name != "flow":
+                continue
+            for connection in port.connections:
+                if connection.target_port is port:
+                    return connection
+
+        for port in node_item.outputs.values():
+            if port.definition.type_name == "flow":
+                continue
+            for connection in port.connections:
+                if connection.source_port is port and connection.target_port is not None:
+                    return connection
+        return None
 
 
 class NodeView(QGraphicsView):
