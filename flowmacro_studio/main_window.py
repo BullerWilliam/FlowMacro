@@ -285,11 +285,21 @@ class CanvasStage(QFrame):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
 
-        title = QLabel("Code")
-        title.setObjectName("DrawerTitle")
+        tab_strip = QFrame()
+        tab_strip.setObjectName("EditorTabStrip")
+        tab_layout = QHBoxLayout(tab_strip)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(6)
+
+        for label, active in [("Code", True), ("Costumes", False), ("Sounds", False)]:
+            button = QPushButton(label)
+            button.setObjectName("EditorTabActive" if active else "EditorTab")
+            button.setFlat(True)
+            tab_layout.addWidget(button)
+
         subtitle = QLabel("Drag blocks here to build your FlowMacro script.")
         subtitle.setObjectName("DrawerMuted")
-        header_layout.addWidget(title)
+        header_layout.addWidget(tab_strip)
         header_layout.addWidget(subtitle, 1)
         layout.addWidget(header)
 
@@ -441,11 +451,11 @@ class StagePreview(QFrame):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
 
-        title = QLabel("Stage")
-        title.setObjectName("DrawerTitle")
-        subtitle = QLabel("Runtime preview and quick controls")
+        stage_pill = QLabel("Stage")
+        stage_pill.setObjectName("StageTitlePill")
+        subtitle = QLabel("Preview")
         subtitle.setObjectName("DrawerMuted")
-        header_layout.addWidget(title)
+        header_layout.addWidget(stage_pill)
         header_layout.addWidget(subtitle, 1)
 
         self.run_button = QPushButton("Green Flag")
@@ -463,7 +473,7 @@ class StagePreview(QFrame):
 
         self.preview_label = QLabel("Run a macro to preview image output here.")
         self.preview_label.setObjectName("StagePlaceholder")
-        self.preview_label.setMinimumHeight(300)
+        self.preview_label.setMinimumHeight(260)
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setWordWrap(True)
         layout.addWidget(self.preview_label, 1)
@@ -533,9 +543,9 @@ class NodeShelf(QFrame):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
-        title = QLabel("Node Shelf")
+        title = QLabel("Backpack")
         title.setObjectName("DrawerTitle")
-        subtitle = QLabel("A quick view of blocks in your project")
+        subtitle = QLabel("Quick access to the blocks already in your project")
         subtitle.setObjectName("DrawerMuted")
         header_layout.addWidget(title)
         header_layout.addWidget(subtitle, 1)
@@ -563,7 +573,7 @@ class NodeShelf(QFrame):
                 widget.deleteLater()
 
         if not node_items:
-            empty = QLabel("No blocks yet. Drag from the Code library to start building.")
+            empty = QLabel("No blocks yet. Drag from the Blocks library to start building.")
             empty.setObjectName("DrawerMuted")
             self.cards_layout.addWidget(empty)
             self.cards_layout.addStretch(1)
@@ -613,11 +623,11 @@ class NodePalette(QFrame):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel("Code")
+        title = QLabel("Blocks")
         title.setObjectName("DrawerTitle")
         layout.addWidget(title)
 
-        subtitle = QLabel("Pick a category, drag a block into the workspace, or double-click to place it.")
+        subtitle = QLabel("Choose a category, then drag a block into the scripting area or double-click to place it.")
         subtitle.setObjectName("DrawerMuted")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
@@ -786,19 +796,22 @@ class MainWindow(QMainWindow):
         toolbar = QFrame()
         toolbar.setObjectName("ToolBarFrame")
         toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(16, 10, 16, 10)
+        toolbar_layout.setContentsMargins(18, 10, 18, 10)
         toolbar_layout.setSpacing(12)
 
         brand_strip = QFrame()
         brand_strip.setObjectName("ToolStrip")
         brand_layout = QHBoxLayout(brand_strip)
         brand_layout.setContentsMargins(0, 0, 0, 0)
-        brand_layout.setSpacing(10)
-        brand_label = QLabel("FlowMacro Studio")
+        brand_layout.setSpacing(12)
+        brand_label = QLabel("FlowMacro")
         brand_label.setObjectName("BrandTitle")
+        editor_badge = QLabel("Studio")
+        editor_badge.setObjectName("BrandBadge")
         self.project_pill = QLabel("Untitled.fmp")
         self.project_pill.setObjectName("ProjectPill")
         brand_layout.addWidget(brand_label)
+        brand_layout.addWidget(editor_badge)
         for label in ["File", "Edit", "Tutorials"]:
             nav_button = QPushButton(label)
             nav_button.setObjectName("HeaderNavButton")
@@ -824,19 +837,21 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(toolbar)
 
         workspace_row = QWidget()
+        workspace_row.setObjectName("WorkspaceRow")
         workspace_layout = QHBoxLayout(workspace_row)
         workspace_layout.setContentsMargins(14, 14, 14, 14)
         workspace_layout.setSpacing(12)
 
-        self.palette.setFixedWidth(350)
+        self.palette.setFixedWidth(324)
         workspace_layout.addWidget(self.palette)
         workspace_layout.addWidget(self.canvas_stage, 1)
 
         right_column = QWidget()
+        right_column.setObjectName("StageColumn")
         right_layout = QVBoxLayout(right_column)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(12)
-        right_column.setFixedWidth(430)
+        right_column.setFixedWidth(402)
 
         right_layout.addWidget(self.stage_preview, 5)
         right_layout.addWidget(self.inspector, 4)
@@ -853,9 +868,9 @@ class MainWindow(QMainWindow):
         console_header_layout = QHBoxLayout(console_header)
         console_header_layout.setContentsMargins(0, 0, 0, 0)
         console_header_layout.setSpacing(8)
-        console_title = QLabel("Runtime Console")
+        console_title = QLabel("Monitor")
         console_title.setObjectName("ConsoleTitle")
-        console_subtitle = QLabel("Print output, file saves, load errors, and runtime messages.")
+        console_subtitle = QLabel("Messages, file saves, load errors, and runtime output.")
         console_subtitle.setObjectName("DrawerMuted")
         clear_console_button = self._make_toolbar_button("Clear")
         clear_console_button.clicked.connect(self.log_output.clear)
@@ -964,6 +979,10 @@ class MainWindow(QMainWindow):
     def _handle_node_drag_finished(self, node_item, screen_pos) -> None:
         if not isinstance(node_item, NodeItem):
             return
+        snapped = self.scene.snap_released_node(node_item)
+        if snapped:
+            self._refresh_node_shelf()
+            return
         if not self._is_library_delete_drop(node_item, screen_pos):
             return
 
@@ -1010,11 +1029,8 @@ class MainWindow(QMainWindow):
         self._screen_picker_targets = []
 
     def _is_library_delete_drop(self, node_item: NodeItem, screen_pos: QPoint) -> bool:
-        if not self.library_dock.is_open():
-            return False
-
-        dock_global_rect = QRect(self.library_dock.mapToGlobal(QPoint(0, 0)), self.library_dock.size())
-        if dock_global_rect.contains(screen_pos):
+        palette_global_rect = QRect(self.palette.mapToGlobal(QPoint(0, 0)), self.palette.size())
+        if palette_global_rect.contains(screen_pos):
             return True
 
         node_center_in_view = self.view.mapFromScene(node_item.sceneBoundingRect().center())

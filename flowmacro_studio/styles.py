@@ -6,22 +6,25 @@ from .models import PORT_COLORS
 
 WINDOW_STYLESHEET = """
 QMainWindow, QWidget {
-    background: #f3f6fb;
+    background: #f2f5fb;
     color: #31415f;
     font-family: "Segoe UI", "Arial", "Tahoma";
     font-size: 9pt;
 }
 QWidget#AppShell {
-    background: #eef3fb;
+    background: #eef2f8;
+}
+QWidget#WorkspaceRow, QWidget#StageColumn {
+    background: transparent;
 }
 QFrame#ToolBarFrame {
     background: qlineargradient(
         x1: 0, y1: 0, x2: 1, y2: 0,
         stop: 0 #4c97ff,
-        stop: 0.6 #4280e3,
-        stop: 1 #3d6fdb
+        stop: 0.6 #4187f2,
+        stop: 1 #3374e8
     );
-    border-bottom: 1px solid #78a8f3;
+    border-bottom: 1px solid #7aa9ff;
 }
 QFrame#ToolStrip {
     background: transparent;
@@ -30,12 +33,21 @@ QFrame#ToolStrip {
 }
 QLabel#BrandTitle {
     color: white;
-    font-size: 13pt;
+    font-size: 14pt;
     font-weight: 700;
 }
-QLabel#ProjectPill {
+QLabel#BrandBadge {
     background: rgba(255, 255, 255, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    border-radius: 11px;
+    color: #f4fbff;
+    font-size: 8.5pt;
+    font-weight: 700;
+    padding: 4px 10px;
+}
+QLabel#ProjectPill {
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.24);
     border-radius: 14px;
     color: #f5fbff;
     padding: 6px 12px;
@@ -46,23 +58,23 @@ QPushButton#HeaderNavButton {
     background: transparent;
     border: none;
     border-radius: 12px;
-    color: white;
+    color: #eef7ff;
     font-weight: 700;
     padding: 8px 12px;
 }
 QPushButton#HeaderNavButton:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.14);
 }
 QPushButton#HeaderActionButton {
-    background: rgba(255, 255, 255, 0.16);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    border-radius: 16px;
     color: white;
     padding: 8px 14px;
     font-weight: 700;
 }
 QPushButton#HeaderActionButton:hover {
-    background: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.28);
 }
 QLabel#DrawerTitle, QLabel#ConsoleTitle, QLabel#PanelTitle {
     color: #1f2f4d;
@@ -95,6 +107,7 @@ QFrame#LibraryPanel, QFrame#InspectorPanel, QFrame#StagePanel, QFrame#NodeShelf,
     border-radius: 18px;
 }
 QFrame#LibraryPanel {
+    background: #ffffff;
     border-right: 1px solid #d7e1f2;
 }
 QFrame#InspectorPanel {
@@ -108,7 +121,7 @@ QFrame#DrawerHeader, QFrame#ConsoleHeader, QFrame#CanvasHeader, QFrame#StageHead
     border: none;
 }
 QFrame#CanvasSurface {
-    background: #f5f7fc;
+    background: #ffffff;
     border: 1px solid #d7e1f2;
     border-radius: 16px;
 }
@@ -116,6 +129,34 @@ QFrame#CanvasControls {
     background: rgba(255, 255, 255, 0.96);
     border: 1px solid #d7e1f2;
     border-radius: 18px;
+}
+QFrame#EditorTabStrip {
+    background: transparent;
+    border: none;
+}
+QPushButton#EditorTabActive, QPushButton#EditorTab {
+    border-radius: 14px;
+    font-weight: 700;
+    padding: 6px 14px;
+}
+QPushButton#EditorTabActive {
+    background: #ffffff;
+    border: 1px solid #d4e0f5;
+    color: #27508a;
+}
+QPushButton#EditorTab {
+    background: #e7eefb;
+    border: 1px solid #d4e0f5;
+    color: #6c83aa;
+}
+QLabel#StageTitlePill {
+    background: #eef5ff;
+    border: 1px solid #d8e5fb;
+    border-radius: 12px;
+    color: #2d5fa8;
+    font-size: 9.5pt;
+    font-weight: 700;
+    padding: 6px 12px;
 }
 QLabel#OverlayError {
     background: #ffeff2;
@@ -205,9 +246,9 @@ QPushButton#CategoryButton {
     border: none;
     border-radius: 16px;
     color: #567199;
-    padding: 8px 6px;
+    padding: 10px 8px;
     font-weight: 700;
-    text-align: center;
+    text-align: left;
 }
 QPushButton#CategoryButton:hover {
     background: #eef5ff;
@@ -217,7 +258,7 @@ QPushButton#CategoryButton:checked {
     color: #2358a8;
 }
 QFrame#CategoryRail {
-    background: #edf4ff;
+    background: #f3f7ff;
     border: 1px solid #d7e1f2;
     border-radius: 16px;
 }
@@ -247,7 +288,7 @@ QLabel#StageStatus {
 }
 QLabel#StagePlaceholder {
     background: #ffffff;
-    border: 1px solid #d7e1f2;
+    border: 2px solid #dce7f7;
     border-radius: 16px;
     color: #7084a6;
 }
