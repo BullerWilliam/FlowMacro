@@ -57,6 +57,7 @@ class PortItem(QGraphicsObject):
             rect = QRectF(-12, -4, 24, 8)
             painter.setPen(Qt.NoPen)
             painter.setBrush(glow_color)
+            painter.drawRoundedRect(rect.adjusted(-2, -2, 2, 2), 6, 6)
             painter.setBrush(QColor("#ffffff"))
             painter.drawRoundedRect(rect, 5, 5)
             painter.setBrush(base_color)
