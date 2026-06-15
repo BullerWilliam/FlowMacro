@@ -3,6 +3,16 @@ from __future__ import annotations
 from .models import ConfigField, NodeDefinition, PortDefinition
 
 
+CATEGORY_COLORS = {
+    "Control": "#FFAB19",
+    "Input": "#4C97FF",
+    "Screen": "#FF6680",
+    "Files": "#FFBF00",
+    "Logic": "#59C059",
+    "Values": "#9966FF",
+}
+
+
 def build_node_catalog() -> dict[str, NodeDefinition]:
     node_definitions = [
         NodeDefinition(
@@ -572,4 +582,6 @@ def build_node_catalog() -> dict[str, NodeDefinition]:
             ],
         ),
     ]
+    for node in node_definitions:
+        node.color = CATEGORY_COLORS.get(node.category, node.color)
     return {node.type_id: node for node in node_definitions}

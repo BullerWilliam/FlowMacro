@@ -32,7 +32,7 @@ NODE_MIME_TYPE = "application/x-flowmacro-node"
 
 
 class PortItem(QGraphicsObject):
-    radius = 4.8
+    radius = 5.1
 
     def __init__(self, node_item: "NodeItem", definition: PortDefinition) -> None:
         super().__init__(node_item)
@@ -50,19 +50,19 @@ class PortItem(QGraphicsObject):
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         base_color = port_color(self.definition.type_name)
-        glow_color = with_alpha(base_color, 100 if self._hovered else 55)
+        glow_color = with_alpha(base_color, 95 if self._hovered else 42)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         painter.setPen(Qt.NoPen)
         painter.setBrush(glow_color)
-        painter.drawEllipse(QPointF(0, 0), self.radius + 2.4, self.radius + 2.4)
+        painter.drawEllipse(QPointF(0, 0), self.radius + 2.8, self.radius + 2.8)
 
-        painter.setPen(QPen(QColor("#d9e9ff"), 1.0))
+        painter.setPen(QPen(QColor("#ffffff"), 1.2))
         painter.setBrush(base_color)
         painter.drawEllipse(QPointF(0, 0), self.radius, self.radius)
 
         painter.setPen(Qt.NoPen)
-        painter.setBrush(with_alpha(QColor("#ffffff"), 75))
+        painter.setBrush(with_alpha(QColor("#ffffff"), 95))
         painter.drawEllipse(QPointF(-1.2, -1.2), self.radius * 0.38, self.radius * 0.38)
 
     def hoverEnterEvent(self, event) -> None:
@@ -156,20 +156,23 @@ class ConnectionItem(QGraphicsPathItem):
         path = self.path()
 
         if self.preview:
-            glow_width = 5.5
-            core_width = 1.6
-            glow_alpha = 50
-            core_color = with_alpha(color, 215)
+            glow_width = 6.0
+            core_width = 2.0
+            glow_alpha = 70
+            core_color = with_alpha(color, 225)
         else:
             active = self.isSelected() or self._hovered
-            glow_width = 7.5 if active else 5.6
-            core_width = 2.35 if active else 1.8
-            glow_alpha = 92 if active else 44
-            core_color = color.lighter(115) if active else color
+            glow_width = 8.0 if active else 6.2
+            core_width = 2.8 if active else 2.2
+            glow_alpha = 120 if active else 62
+            core_color = color.darker(105) if active else color
 
         glow_pen = QPen(with_alpha(color, glow_alpha), glow_width)
         glow_pen.setCapStyle(Qt.RoundCap)
         painter.setPen(glow_pen)
+        painter.drawPath(path)
+
+        painter.setPen(QPen(with_alpha(QColor("#ffffff"), 190), core_width + 1.2))
         painter.drawPath(path)
 
         core_pen = QPen(core_color, core_width)
@@ -203,7 +206,7 @@ class ConnectionItem(QGraphicsPathItem):
 
 
 class NodeItem(QGraphicsObject):
-    width = 238.0
+    width = 248.0
 
     def __init__(self, model: NodeModel, definition: NodeDefinition) -> None:
         super().__init__()
@@ -236,13 +239,13 @@ class NodeItem(QGraphicsObject):
         return [*self.inputs.values(), *self.outputs.values()]
 
     def refresh_layout(self) -> None:
-        port_top = 56.0
-        spacing = 24.0
+        port_top = 58.0
+        spacing = 26.0
         summary_lines = self.summary_lines()
-        summary_height = max(24.0, 14.0 * len(summary_lines) + 10.0)
+        summary_height = max(30.0, 16.0 * len(summary_lines) + 14.0)
         self.height = max(
-            108.0,
-            port_top + max(len(self.inputs), len(self.outputs), 1) * spacing + summary_height + 6.0,
+            124.0,
+            port_top + max(len(self.inputs), len(self.outputs), 1) * spacing + summary_height + 8.0,
         )
         self.prepareGeometryChange()
         for index, port in enumerate(self.definition.inputs):
@@ -276,57 +279,53 @@ class NodeItem(QGraphicsObject):
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         accent = QColor(self.definition.color)
-        outline_color = QColor("#5ba8ff") if self.isSelected() else QColor("#243956")
+        outline_color = accent.darker(110) if self.isSelected() else QColor("#d7e1f2")
         if self._hovered and not self.isSelected():
-            outline_color = QColor("#35527a")
+            outline_color = accent.lighter(118)
 
-        shadow_rect = rect.adjusted(4, 5, 4, 10)
+        shadow_rect = rect.adjusted(3, 6, 3, 12)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 72))
+        painter.setBrush(QColor(112, 146, 198, 38))
         painter.drawRoundedRect(shadow_rect, 14, 14)
 
         if self.isSelected():
-            painter.setBrush(with_alpha(accent, 28))
+            painter.setBrush(with_alpha(accent, 35))
             painter.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), 16, 16)
 
-        body_gradient = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        body_gradient.setColorAt(0.0, QColor("#121d2f"))
-        body_gradient.setColorAt(0.32, QColor("#0f1828"))
-        body_gradient.setColorAt(1.0, QColor("#0b1320"))
         painter.setPen(QPen(outline_color, 1.4))
-        painter.setBrush(body_gradient)
+        painter.setBrush(QColor("#ffffff"))
         painter.drawRoundedRect(rect, 13, 13)
 
-        accent_strip = QRectF(0, 0, self.width, 6)
+        accent_strip = QRectF(0, 0, self.width, 40)
         accent_gradient = QLinearGradient(accent_strip.topLeft(), accent_strip.topRight())
-        accent_gradient.setColorAt(0.0, accent.lighter(120))
-        accent_gradient.setColorAt(1.0, accent.darker(140))
+        accent_gradient.setColorAt(0.0, accent.lighter(112))
+        accent_gradient.setColorAt(1.0, accent.darker(108))
         painter.setPen(Qt.NoPen)
         painter.setBrush(accent_gradient)
         painter.drawRoundedRect(accent_strip, 13, 13)
-        painter.drawRect(0, 3, self.width, 3)
+        painter.drawRect(0, 18, self.width, 22)
 
-        painter.setPen(QColor("#f6fbff"))
+        painter.setPen(QColor("#ffffff"))
         title_font = painter.font()
-        title_font.setPointSize(10)
+        title_font.setPointSize(10.5)
         title_font.setBold(True)
         painter.setFont(title_font)
-        painter.drawText(QRectF(14, 12, self.width - 92, 18), self.definition.title)
+        painter.drawText(QRectF(14, 10, self.width - 96, 22), self.definition.title)
 
         chip_text = self.definition.category.upper()
-        chip_rect = QRectF(self.width - 74, 12, 60, 18)
-        painter.setPen(QPen(with_alpha(accent, 180), 1))
-        painter.setBrush(with_alpha(accent, 24))
+        chip_rect = QRectF(self.width - 82, 10, 68, 20)
+        painter.setPen(QPen(with_alpha(QColor("#ffffff"), 165), 1))
+        painter.setBrush(with_alpha(QColor("#ffffff"), 40))
         painter.drawRoundedRect(chip_rect, 8, 8)
         chip_font = painter.font()
         chip_font.setPointSize(7)
         chip_font.setBold(True)
         painter.setFont(chip_font)
-        painter.setPen(with_alpha(accent.lighter(165), 225))
+        painter.setPen(QColor("#ffffff"))
         painter.drawText(chip_rect, Qt.AlignCenter, chip_text)
 
         port_name_font = painter.font()
-        port_name_font.setPointSize(8)
+        port_name_font.setPointSize(8.3)
         port_name_font.setBold(True)
         type_font = painter.font()
         type_font.setPointSize(7)
@@ -336,24 +335,24 @@ class NodeItem(QGraphicsObject):
             item = self.inputs[port.key]
             port_y = item.y()
             wire_color = port_color(port.type_name)
-            painter.setPen(QPen(with_alpha(wire_color, 180), 1.0))
-            painter.drawLine(0, port_y, 12, port_y)
+            painter.setPen(QPen(with_alpha(wire_color, 180), 1.2))
+            painter.drawLine(0, port_y, 14, port_y)
             painter.setFont(port_name_font)
-            painter.setPen(QColor("#e5efff"))
+            painter.setPen(QColor("#2d4164"))
             painter.drawText(QRectF(16, port_y - 9, 118, 13), port.label)
             if port.type_name != "flow":
                 painter.setFont(type_font)
-                painter.setPen(with_alpha(wire_color, 205))
+                painter.setPen(with_alpha(wire_color, 220))
                 painter.drawText(QRectF(16, port_y + 4, 80, 12), port.type_name)
 
         for port in self.definition.outputs:
             item = self.outputs[port.key]
             port_y = item.y()
             wire_color = port_color(port.type_name)
-            painter.setPen(QPen(with_alpha(wire_color, 180), 1.0))
-            painter.drawLine(self.width - 12, port_y, self.width, port_y)
+            painter.setPen(QPen(with_alpha(wire_color, 180), 1.2))
+            painter.drawLine(self.width - 14, port_y, self.width, port_y)
             painter.setFont(port_name_font)
-            painter.setPen(QColor("#e5efff"))
+            painter.setPen(QColor("#2d4164"))
             painter.drawText(
                 QRectF(self.width - 134, port_y - 9, 118, 13),
                 Qt.AlignRight,
@@ -361,7 +360,7 @@ class NodeItem(QGraphicsObject):
             )
             if port.type_name != "flow":
                 painter.setFont(type_font)
-                painter.setPen(with_alpha(wire_color, 205))
+                painter.setPen(with_alpha(wire_color, 220))
                 painter.drawText(
                     QRectF(self.width - 98, port_y + 4, 82, 12),
                     Qt.AlignRight,
@@ -369,16 +368,17 @@ class NodeItem(QGraphicsObject):
                 )
 
         lines = self.summary_lines()
-        summary_height = max(24.0, 14.0 * len(lines) + 10.0)
+        summary_height = max(30.0, 16.0 * len(lines) + 14.0)
         summary_top = self.height - summary_height - 10.0
-        painter.setPen(QPen(QColor("#1f314d"), 1))
-        painter.drawLine(12, summary_top - 4, self.width - 12, summary_top - 4)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(with_alpha(accent, 22))
+        painter.drawRoundedRect(QRectF(10, summary_top - 6, self.width - 20, summary_height + 8), 12, 12)
 
         painter.setFont(type_font)
-        painter.setPen(QColor("#6f8db9"))
+        painter.setPen(QColor("#5d7398"))
         painter.drawText(QRectF(14, summary_top, 64, 12), "STATUS")
 
-        painter.setPen(QColor("#b6caea"))
+        painter.setPen(QColor("#3e5479"))
         for index, line in enumerate(lines):
             painter.drawText(
                 QRectF(14, summary_top + 12 + index * 14.0, self.width - 28, 13),
@@ -477,38 +477,17 @@ class NodeScene(QGraphicsScene):
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         painter.setRenderHint(QPainter.Antialiasing, False)
-
-        base_gradient = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        base_gradient.setColorAt(0.0, QColor("#0a1320"))
-        base_gradient.setColorAt(0.55, QColor("#09111b"))
-        base_gradient.setColorAt(1.0, QColor("#070d16"))
-        painter.fillRect(rect, base_gradient)
-
-        ambient = QRadialGradient(rect.center(), max(rect.width(), rect.height()) * 0.65)
-        ambient.setColorAt(0.0, QColor(38, 76, 128, 68))
-        ambient.setColorAt(0.42, QColor(24, 49, 82, 26))
-        ambient.setColorAt(1.0, QColor(0, 0, 0, 0))
-        painter.fillRect(rect, ambient)
-
-        vignette = QRadialGradient(rect.center(), max(rect.width(), rect.height()) * 0.78)
-        vignette.setColorAt(0.68, QColor(0, 0, 0, 0))
-        vignette.setColorAt(1.0, QColor(1, 3, 8, 120))
-        painter.fillRect(rect, vignette)
-
-        minor_pen = QPen(QColor(48, 76, 118, 58), 1)
-        major_pen = QPen(QColor(88, 133, 198, 104), 1)
+        painter.fillRect(rect, QColor("#f7f9fe"))
+        dot_pen = QPen(QColor("#dde6f4"))
+        dot_pen.setWidth(1)
+        painter.setPen(dot_pen)
         grid_size = 24
-        major_every = 5
         left = int(rect.left()) - (int(rect.left()) % grid_size)
         top = int(rect.top()) - (int(rect.top()) % grid_size)
 
         for x in range(left, int(rect.right()) + grid_size, grid_size):
-            painter.setPen(major_pen if (x // grid_size) % major_every == 0 else minor_pen)
-            painter.drawLine(x, rect.top(), x, rect.bottom())
-
-        for y in range(top, int(rect.bottom()) + grid_size, grid_size):
-            painter.setPen(major_pen if (y // grid_size) % major_every == 0 else minor_pen)
-            painter.drawLine(rect.left(), y, rect.right(), y)
+            for y in range(top, int(rect.bottom()) + grid_size, grid_size):
+                painter.drawPoint(x, y)
 
     def clear_graph(self) -> None:
         self.drag_source = None
@@ -745,7 +724,7 @@ class NodeView(QGraphicsView):
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setAcceptDrops(True)
         self.setFrameShape(QGraphicsView.NoFrame)
-        self.setBackgroundBrush(QColor("#08111c"))
+        self.setBackgroundBrush(QColor("#f7f9fe"))
         self.setStyleSheet("background: transparent; border: none;")
 
     def scale_by(self, factor: float) -> None:

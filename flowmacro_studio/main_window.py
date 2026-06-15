@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from html import escape
 from pathlib import Path
@@ -19,9 +20,10 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
-from PySide6.QtGui import QCloseEvent, QColor, QCursor, QDrag, QGuiApplication, QPainter, QPalette, QTextCursor
+from PySide6.QtGui import QCloseEvent, QColor, QCursor, QDrag, QFont, QGuiApplication, QPainter, QPalette, QPixmap, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QTextEdit,
     QToolButton,
@@ -159,14 +162,21 @@ class RuntimeConsole(QTextEdit):
         if not self.document().isEmpty():
             cursor.insertBlock()
 
-        if isinstance(value, dict) and value.get("kind") == "image" and value.get("path"):
-            image_path = Path(str(value["path"])).resolve()
-            image_uri = QUrl.fromLocalFile(str(image_path)).toString()
+        if isinstance(value, dict) and value.get("kind") == "image":
             cursor.insertHtml('<span style="color:#8fb5eb;">[Print] Image</span><br>')
-            cursor.insertHtml(f'<img src="{image_uri}" width="340" /><br>')
-            cursor.insertHtml(
-                f'<span style="color:#a8c9f7;font-family:Consolas;">{escape(str(image_path))}</span>'
-            )
+            if value.get("path"):
+                image_path = Path(str(value["path"])).resolve()
+                image_uri = QUrl.fromLocalFile(str(image_path)).toString()
+                cursor.insertHtml(f'<img src="{image_uri}" width="340" /><br>')
+                cursor.insertHtml(
+                    f'<span style="color:#a8c9f7;font-family:Consolas;">{escape(str(image_path))}</span>'
+                )
+            elif value.get("data_base64"):
+                encoded = base64.b64encode(base64.b64decode(str(value["data_base64"]))).decode("ascii")
+                cursor.insertHtml(f'<img src="data:image/png;base64,{encoded}" width="340" /><br>')
+                cursor.insertHtml('<span style="color:#a8c9f7;font-family:Consolas;">in-memory image</span>')
+            else:
+                cursor.insertText(json.dumps(value, indent=2))
         else:
             if isinstance(value, (dict, list, tuple)):
                 text = json.dumps(value, indent=2)
@@ -266,28 +276,49 @@ class CanvasStage(QFrame):
         self.view = view
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self.view)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
 
-        self.error_toast = QLabel(self)
+        header = QFrame()
+        header.setObjectName("CanvasHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+
+        title = QLabel("Code")
+        title.setObjectName("DrawerTitle")
+        subtitle = QLabel("Drag blocks here to build your FlowMacro script.")
+        subtitle.setObjectName("DrawerMuted")
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle, 1)
+        layout.addWidget(header)
+
+        self.surface = QFrame()
+        self.surface.setObjectName("CanvasSurface")
+        surface_layout = QVBoxLayout(self.surface)
+        surface_layout.setContentsMargins(0, 0, 0, 0)
+        surface_layout.setSpacing(0)
+        surface_layout.addWidget(self.view)
+        layout.addWidget(self.surface, 1)
+
+        self.error_toast = QLabel(self.surface)
         self.error_toast.setObjectName("OverlayError")
         self.error_toast.setWordWrap(True)
         self.error_toast.hide()
 
-        self.controls = QFrame(self)
+        self.controls = QFrame(self.surface)
         self.controls.setObjectName("CanvasControls")
-        controls_layout = QHBoxLayout(self.controls)
+        controls_layout = QVBoxLayout(self.controls)
         controls_layout.setContentsMargins(8, 8, 8, 8)
         controls_layout.setSpacing(6)
 
-        self.zoom_out_button = self._create_canvas_button("-", "Zoom out")
         self.zoom_in_button = self._create_canvas_button("+", "Zoom in")
+        self.zoom_out_button = self._create_canvas_button("-", "Zoom out")
         self.reset_zoom_button = self._create_canvas_button("100%", "Reset zoom")
         self.fit_view_button = self._create_canvas_button("Fit", "Fit all nodes")
 
-        controls_layout.addWidget(self.zoom_out_button)
         controls_layout.addWidget(self.zoom_in_button)
+        controls_layout.addWidget(self.zoom_out_button)
         controls_layout.addWidget(self.reset_zoom_button)
         controls_layout.addWidget(self.fit_view_button)
 
@@ -317,36 +348,255 @@ class CanvasStage(QFrame):
     def _position_overlays(self) -> None:
         self.controls.adjustSize()
         controls_margin = 16
-        self.controls.move(self.width() - self.controls.width() - controls_margin, controls_margin)
+        self.controls.move(
+            self.surface.width() - self.controls.width() - controls_margin,
+            self.surface.height() - self.controls.height() - controls_margin,
+        )
         self.controls.raise_()
 
         if self.error_toast.isHidden():
             return
 
-        toast_width = min(520, max(260, self.width() - 40))
+        toast_width = min(520, max(260, self.surface.width() - 40))
         self.error_toast.setFixedWidth(toast_width)
         self.error_toast.adjustSize()
-        self.error_toast.move((self.width() - self.error_toast.width()) // 2, 16)
+        self.error_toast.move((self.surface.width() - self.error_toast.width()) // 2, 16)
+
+CATEGORY_ORDER = ["Control", "Input", "Screen", "Files", "Logic", "Values"]
+
+CATEGORY_META = {
+    "Control": {"label": "Control", "hint": "Start, timing, and flow", "color": "#ffab19"},
+    "Input": {"label": "Input", "hint": "Mouse and keyboard actions", "color": "#4c97ff"},
+    "Screen": {"label": "Screen", "hint": "Screenshots and pixels", "color": "#ff6680"},
+    "Files": {"label": "Files", "hint": "Read, write, move, delete", "color": "#ffbf00"},
+    "Logic": {"label": "Logic", "hint": "Compare, math, text, booleans", "color": "#59c059"},
+    "Values": {"label": "Values", "hint": "Numbers, text, booleans", "color": "#9966ff"},
+}
 
 
-class NodePaletteTree(QTreeWidget):
-    def __init__(self) -> None:
+class BlockCardButton(QPushButton):
+    activated = Signal(str)
+
+    def __init__(self, definition: NodeDefinition) -> None:
         super().__init__()
-        self.setDragEnabled(True)
-        self.setDefaultDropAction(Qt.CopyAction)
+        self.definition = definition
+        self._press_pos = QPoint()
+        description = definition.description
+        if len(description) > 64:
+            description = f"{description[:61]}..."
+        self.setObjectName("PaletteBlockCard")
+        self.setText(f"{definition.title}\n{description}")
+        self.setToolTip(definition.description)
+        self.setCursor(Qt.OpenHandCursor)
+        self.setMinimumHeight(78)
+        self.setStyleSheet(
+            "QPushButton#PaletteBlockCard {"
+            f"border-left: 10px solid {definition.color};"
+            "padding-left: 14px;"
+            "}"
+        )
 
-    def startDrag(self, supported_actions) -> None:
-        item = self.currentItem()
-        if item is None:
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if not (event.buttons() & Qt.LeftButton):
+            super().mouseMoveEvent(event)
             return
-        node_type = item.data(0, Qt.UserRole)
-        if not node_type:
+        if (event.position().toPoint() - self._press_pos).manhattanLength() < QApplication.startDragDistance():
+            super().mouseMoveEvent(event)
             return
         mime_data = QMimeData()
-        mime_data.setData(NODE_MIME_TYPE, str(node_type).encode("utf-8"))
+        mime_data.setData(NODE_MIME_TYPE, self.definition.type_id.encode("utf-8"))
         drag = QDrag(self)
         drag.setMimeData(mime_data)
         drag.exec(Qt.CopyAction)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.activated.emit(self.definition.type_id)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+
+class StagePreview(QFrame):
+    run_requested = Signal()
+    stop_requested = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StagePanel")
+        self._preview_pixmap: QPixmap | None = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        header = QFrame()
+        header.setObjectName("StageHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+
+        title = QLabel("Stage")
+        title.setObjectName("DrawerTitle")
+        subtitle = QLabel("Runtime preview and quick controls")
+        subtitle.setObjectName("DrawerMuted")
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle, 1)
+
+        self.run_button = QPushButton("Green Flag")
+        self.run_button.setObjectName("PrimaryButton")
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setObjectName("DangerButton")
+        self.stop_button.setEnabled(False)
+        header_layout.addWidget(self.run_button)
+        header_layout.addWidget(self.stop_button)
+        layout.addWidget(header)
+
+        self.status_label = QLabel("Ready to run")
+        self.status_label.setObjectName("StageStatus")
+        layout.addWidget(self.status_label)
+
+        self.preview_label = QLabel("Run a macro to preview image output here.")
+        self.preview_label.setObjectName("StagePlaceholder")
+        self.preview_label.setMinimumHeight(300)
+        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setWordWrap(True)
+        layout.addWidget(self.preview_label, 1)
+
+        self.meta_label = QLabel("Screenshots and printed images will appear here.")
+        self.meta_label.setObjectName("DrawerMuted")
+        self.meta_label.setWordWrap(True)
+        layout.addWidget(self.meta_label)
+
+        self.run_button.clicked.connect(self.run_requested)
+        self.stop_button.clicked.connect(self.stop_requested)
+
+    def set_status(self, text: str) -> None:
+        self.status_label.setText(text)
+
+    def clear_preview(self) -> None:
+        self._preview_pixmap = None
+        self.preview_label.setPixmap(QPixmap())
+        self.preview_label.setText("Run a macro to preview image output here.")
+
+    def show_image_payload(self, payload: object) -> None:
+        if not isinstance(payload, dict) or payload.get("kind") != "image":
+            return
+
+        pixmap = QPixmap()
+        if payload.get("path"):
+            pixmap.load(str(Path(str(payload["path"])).resolve()))
+        elif payload.get("data_base64"):
+            pixmap.loadFromData(base64.b64decode(str(payload["data_base64"])))
+
+        if pixmap.isNull():
+            return
+
+        self._preview_pixmap = pixmap
+        self._apply_preview_pixmap()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_preview_pixmap()
+
+    def _apply_preview_pixmap(self) -> None:
+        if self._preview_pixmap is None or self._preview_pixmap.isNull():
+            return
+        target_width = max(120, self.preview_label.width() - 24)
+        target_height = max(120, self.preview_label.height() - 24)
+        scaled = self._preview_pixmap.scaled(
+            target_width,
+            target_height,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        self.preview_label.setText("")
+        self.preview_label.setPixmap(scaled)
+
+
+class NodeShelf(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("NodeShelf")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        header = QFrame()
+        header.setObjectName("ShelfHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        title = QLabel("Node Shelf")
+        title.setObjectName("DrawerTitle")
+        subtitle = QLabel("A quick view of blocks in your project")
+        subtitle.setObjectName("DrawerMuted")
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle, 1)
+        layout.addWidget(header)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        layout.addWidget(scroll)
+
+        self.content = QWidget()
+        scroll.setWidget(self.content)
+        self.cards_layout = QHBoxLayout(self.content)
+        self.cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.cards_layout.setSpacing(10)
+
+    def set_nodes(self, node_items: list[NodeItem], selected_ids: set[str]) -> None:
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+        if not node_items:
+            empty = QLabel("No blocks yet. Drag from the Code library to start building.")
+            empty.setObjectName("DrawerMuted")
+            self.cards_layout.addWidget(empty)
+            self.cards_layout.addStretch(1)
+            return
+
+        for node_item in node_items:
+            card = QFrame()
+            card.setObjectName("NodeShelfCard")
+            card.setProperty("selected", node_item.model.node_id in selected_ids)
+            card.style().unpolish(card)
+            card.style().polish(card)
+
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(12, 10, 12, 10)
+            card_layout.setSpacing(4)
+            card.setFixedWidth(148)
+
+            title = QLabel(node_item.definition.title)
+            title.setObjectName("PanelTitle")
+            title.setWordWrap(True)
+            meta = QLabel(node_item.definition.category.upper())
+            meta.setObjectName("DrawerMuted")
+            meta.setStyleSheet(f"color: {node_item.definition.color}; font-weight: 700;")
+            detail = QLabel(node_item.definition.description)
+            detail.setObjectName("DrawerMuted")
+            detail.setWordWrap(True)
+
+            card_layout.addWidget(title)
+            card_layout.addWidget(meta)
+            card_layout.addWidget(detail)
+            self.cards_layout.addWidget(card)
+
+        self.cards_layout.addStretch(1)
 
 
 class NodePalette(QFrame):
@@ -355,69 +605,141 @@ class NodePalette(QFrame):
     def __init__(self, catalog: dict[str, NodeDefinition]) -> None:
         super().__init__()
         self.catalog = catalog
+        self.active_category = "All"
+        self.category_buttons: dict[str, QPushButton] = {}
         self.setObjectName("LibraryPanel")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel("Node Library")
+        title = QLabel("Code")
         title.setObjectName("DrawerTitle")
         layout.addWidget(title)
 
-        subtitle = QLabel("Drag blocks into the workspace or double-click to place them in the center.")
+        subtitle = QLabel("Pick a category, drag a block into the workspace, or double-click to place it.")
         subtitle.setObjectName("DrawerMuted")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search actions, logic, strings, files...")
-        self.search.textChanged.connect(self._rebuild_tree)
+        self.search.setPlaceholderText("Search blocks")
+        self.search.textChanged.connect(self._rebuild_blocks)
         layout.addWidget(self.search)
 
-        self.tree = NodePaletteTree()
-        self.tree.setHeaderHidden(True)
-        self.tree.setIndentation(14)
-        self.tree.setUniformRowHeights(True)
-        self.tree.itemDoubleClicked.connect(self._handle_item_request)
-        self.tree.itemActivated.connect(self._handle_item_request)
-        layout.addWidget(self.tree, 1)
+        body = QHBoxLayout()
+        body.setSpacing(12)
+        layout.addLayout(body, 1)
 
-        footer = QLabel("Tip: press Delete, right-click a node, or drag a node to the left Library side to remove it.")
+        category_rail = QFrame()
+        category_rail.setObjectName("CategoryRail")
+        category_rail.setFixedWidth(92)
+        category_layout = QVBoxLayout(category_rail)
+        category_layout.setContentsMargins(8, 8, 8, 8)
+        category_layout.setSpacing(6)
+        body.addWidget(category_rail)
+
+        button_group = QButtonGroup(self)
+        button_group.setExclusive(True)
+
+        all_button = self._create_category_button("All", "#4c97ff")
+        all_button.setChecked(True)
+        category_layout.addWidget(all_button)
+        self.category_buttons["All"] = all_button
+        button_group.addButton(all_button)
+
+        for category in CATEGORY_ORDER:
+            meta = CATEGORY_META[category]
+            button = self._create_category_button(meta["label"], meta["color"])
+            category_layout.addWidget(button)
+            self.category_buttons[category] = button
+            button_group.addButton(button)
+
+        category_layout.addStretch(1)
+
+        blocks_scroll = QScrollArea()
+        blocks_scroll.setWidgetResizable(True)
+        blocks_scroll.setFrameShape(QFrame.NoFrame)
+        body.addWidget(blocks_scroll, 1)
+
+        self.blocks_host = QWidget()
+        self.blocks_host.setObjectName("BlockScrollContent")
+        blocks_scroll.setWidget(self.blocks_host)
+
+        self.blocks_layout = QVBoxLayout(self.blocks_host)
+        self.blocks_layout.setContentsMargins(0, 0, 0, 0)
+        self.blocks_layout.setSpacing(10)
+        self.blocks_layout.setAlignment(Qt.AlignTop)
+
+        footer = QLabel("Tip: drag blocks in, right-click blocks on the canvas to delete, or drag them back to the library edge.")
         footer.setObjectName("DrawerMuted")
         footer.setWordWrap(True)
         layout.addWidget(footer)
 
-        self._rebuild_tree()
+        self._rebuild_blocks()
 
-    def _rebuild_tree(self) -> None:
+    def _create_category_button(self, label: str, color: str) -> QPushButton:
+        button = QPushButton(label)
+        button.setObjectName("CategoryButton")
+        button.setCheckable(True)
+        button.setFixedHeight(46)
+        button.setStyleSheet(
+            "QPushButton#CategoryButton {"
+            f"border-left: 6px solid {color};"
+            "padding-left: 10px;"
+            "text-align: left;"
+            "}"
+        )
+        button.clicked.connect(lambda checked=False, name=label: self._select_category(name))
+        return button
+
+    def _select_category(self, label: str) -> None:
+        self.active_category = label
+        self._rebuild_blocks()
+
+    def _rebuild_blocks(self) -> None:
+        while self.blocks_layout.count():
+            item = self.blocks_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
         query = self.search.text().strip().lower()
-        self.tree.clear()
 
-        grouped: dict[str, list[NodeDefinition]] = {}
-        for definition in self.catalog.values():
-            if not definition.visible_in_palette:
-                continue
-            haystack = f"{definition.title} {definition.category} {definition.description}".lower()
-            if query and query not in haystack:
-                continue
-            grouped.setdefault(definition.category, []).append(definition)
+        definitions = [
+            definition
+            for definition in self.catalog.values()
+            if definition.visible_in_palette
+            and (self.active_category == "All" or definition.category == self.active_category)
+            and (
+                not query
+                or query in f"{definition.title} {definition.category} {definition.description}".lower()
+            )
+        ]
+        definitions.sort(key=lambda node: (CATEGORY_ORDER.index(node.category) if node.category in CATEGORY_ORDER else 99, node.title))
 
-        for category in sorted(grouped):
-            parent = QTreeWidgetItem([category.upper()])
-            parent.setFlags(parent.flags() & ~Qt.ItemIsSelectable)
-            self.tree.addTopLevelItem(parent)
-            for definition in sorted(grouped[category], key=lambda node: node.title):
-                item = QTreeWidgetItem([definition.title])
-                item.setData(0, Qt.UserRole, definition.type_id)
-                item.setToolTip(0, definition.description)
-                parent.addChild(item)
-            parent.setExpanded(True)
+        if not definitions:
+            empty = QLabel("No blocks match that search.")
+            empty.setObjectName("DrawerMuted")
+            empty.setWordWrap(True)
+            self.blocks_layout.addWidget(empty)
+            self.blocks_layout.addStretch(1)
+            return
 
-    def _handle_item_request(self, item: QTreeWidgetItem, column: int) -> None:
-        node_type = item.data(0, Qt.UserRole)
-        if node_type:
-            self.node_requested.emit(str(node_type))
+        if self.active_category != "All":
+            meta = CATEGORY_META.get(self.active_category, {"hint": "Browse blocks"})
+            intro = QLabel(meta["hint"])
+            intro.setObjectName("DrawerMuted")
+            intro.setWordWrap(True)
+            self.blocks_layout.addWidget(intro)
+
+        for definition in definitions:
+            card = BlockCardButton(definition)
+            card.activated.connect(self.node_requested)
+            self.blocks_layout.addWidget(card)
+
+        self.blocks_layout.addStretch(1)
 
 
 class MainWindow(QMainWindow):
@@ -440,8 +762,10 @@ class MainWindow(QMainWindow):
         self.scene = NodeScene(self.catalog)
         self.view = NodeView(self.scene)
         self.canvas_stage = CanvasStage(self.view)
+        self.stage_preview = StagePreview()
         self.palette = NodePalette(self.catalog)
         self.inspector = InspectorPanel()
+        self.node_shelf = NodeShelf()
         self.log_output = RuntimeConsole()
 
         self._build_ui()
@@ -462,19 +786,24 @@ class MainWindow(QMainWindow):
         toolbar = QFrame()
         toolbar.setObjectName("ToolBarFrame")
         toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(12, 10, 12, 10)
-        toolbar_layout.setSpacing(10)
+        toolbar_layout.setContentsMargins(16, 10, 16, 10)
+        toolbar_layout.setSpacing(12)
 
         brand_strip = QFrame()
         brand_strip.setObjectName("ToolStrip")
         brand_layout = QHBoxLayout(brand_strip)
-        brand_layout.setContentsMargins(12, 8, 12, 8)
+        brand_layout.setContentsMargins(0, 0, 0, 0)
         brand_layout.setSpacing(10)
         brand_label = QLabel("FlowMacro Studio")
         brand_label.setObjectName("BrandTitle")
         self.project_pill = QLabel("Untitled.fmp")
         self.project_pill.setObjectName("ProjectPill")
         brand_layout.addWidget(brand_label)
+        for label in ["File", "Edit", "Tutorials"]:
+            nav_button = QPushButton(label)
+            nav_button.setObjectName("HeaderNavButton")
+            nav_button.setFlat(True)
+            brand_layout.addWidget(nav_button)
         brand_layout.addWidget(self.project_pill)
         toolbar_layout.addWidget(brand_strip)
         toolbar_layout.addStretch(1)
@@ -482,61 +811,40 @@ class MainWindow(QMainWindow):
         actions_strip = QFrame()
         actions_strip.setObjectName("ToolStrip")
         actions_layout = QHBoxLayout(actions_strip)
-        actions_layout.setContentsMargins(8, 8, 8, 8)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(6)
-        self.new_button = self._make_toolbar_button("New")
-        self.load_button = self._make_toolbar_button("Open")
-        self.save_button = self._make_toolbar_button("Save")
-        self.clear_button = self._make_toolbar_button("Clear")
-        self.run_button = self._make_toolbar_button("Run", object_name="PrimaryButton")
-        self.stop_button = self._make_toolbar_button("Stop", object_name="DangerButton")
-        self.stop_button.setEnabled(False)
-        for button in [
-            self.new_button,
-            self.load_button,
-            self.save_button,
-            self.clear_button,
-            self.run_button,
-            self.stop_button,
-        ]:
+        self.new_button = self._make_toolbar_button("New", object_name="HeaderActionButton")
+        self.load_button = self._make_toolbar_button("Open", object_name="HeaderActionButton")
+        self.save_button = self._make_toolbar_button("Save", object_name="HeaderActionButton")
+        self.clear_button = self._make_toolbar_button("Clear", object_name="HeaderActionButton")
+        for button in [self.new_button, self.load_button, self.save_button, self.clear_button]:
             actions_layout.addWidget(button)
         toolbar_layout.addWidget(actions_strip)
-
-        toggles_strip = QFrame()
-        toggles_strip.setObjectName("ToolStrip")
-        toggles_layout = QHBoxLayout(toggles_strip)
-        toggles_layout.setContentsMargins(8, 8, 8, 8)
-        toggles_layout.setSpacing(6)
-        self.library_toggle = self._make_toggle_button("Library")
-        self.inspector_toggle = self._make_toggle_button("Inspector")
-        self.console_toggle = self._make_toggle_button("Console")
-        for button in [self.library_toggle, self.inspector_toggle, self.console_toggle]:
-            toggles_layout.addWidget(button)
-        toolbar_layout.addWidget(toggles_strip)
 
         root_layout.addWidget(toolbar)
 
         workspace_row = QWidget()
         workspace_layout = QHBoxLayout(workspace_row)
-        workspace_layout.setContentsMargins(0, 0, 0, 0)
-        workspace_layout.setSpacing(0)
+        workspace_layout.setContentsMargins(14, 14, 14, 14)
+        workspace_layout.setSpacing(12)
 
-        self.library_dock = AnimatedDock("width", 300)
-        self.library_dock.body_layout.addWidget(self.palette)
-        workspace_layout.addWidget(self.library_dock)
-
+        self.palette.setFixedWidth(350)
+        workspace_layout.addWidget(self.palette)
         workspace_layout.addWidget(self.canvas_stage, 1)
 
-        self.inspector_dock = AnimatedDock("width", 340)
-        self.inspector_dock.body_layout.addWidget(self.inspector)
-        workspace_layout.addWidget(self.inspector_dock)
+        right_column = QWidget()
+        right_layout = QVBoxLayout(right_column)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(12)
+        right_column.setFixedWidth(430)
 
-        root_layout.addWidget(workspace_row, 1)
+        right_layout.addWidget(self.stage_preview, 5)
+        right_layout.addWidget(self.inspector, 4)
+        right_layout.addWidget(self.node_shelf, 2)
 
-        self.console_dock = AnimatedDock("height", 220)
-        console_frame = QFrame()
-        console_frame.setObjectName("ConsoleTray")
-        console_layout = QVBoxLayout(console_frame)
+        self.console_frame = QFrame()
+        self.console_frame.setObjectName("ConsoleTray")
+        console_layout = QVBoxLayout(self.console_frame)
         console_layout.setContentsMargins(12, 10, 12, 12)
         console_layout.setSpacing(10)
 
@@ -556,9 +864,10 @@ class MainWindow(QMainWindow):
         console_header_layout.addWidget(clear_console_button)
         console_layout.addWidget(console_header)
         console_layout.addWidget(self.log_output, 1)
+        right_layout.addWidget(self.console_frame, 3)
 
-        self.console_dock.body_layout.addWidget(console_frame)
-        root_layout.addWidget(self.console_dock)
+        workspace_layout.addWidget(right_column)
+        root_layout.addWidget(workspace_row, 1)
 
         self.setCentralWidget(root)
 
@@ -576,12 +885,8 @@ class MainWindow(QMainWindow):
         self.load_button.clicked.connect(self.load_project_via_dialog)
         self.save_button.clicked.connect(self.save_project)
         self.clear_button.clicked.connect(self.clear_workspace)
-        self.run_button.clicked.connect(self.run_project)
-        self.stop_button.clicked.connect(self.stop_project)
-
-        self.library_toggle.clicked.connect(self.set_library_open)
-        self.inspector_toggle.clicked.connect(self.set_inspector_open)
-        self.console_toggle.clicked.connect(self.set_console_open)
+        self.stage_preview.run_requested.connect(self.run_project)
+        self.stage_preview.stop_requested.connect(self.stop_project)
 
     def _make_toolbar_button(self, text: str, object_name: str = "ToolbarButton") -> QPushButton:
         button = QPushButton(text)
@@ -595,16 +900,13 @@ class MainWindow(QMainWindow):
         return button
 
     def set_library_open(self, is_open: bool, animate: bool = True) -> None:
-        self.library_toggle.setChecked(is_open)
-        self.library_dock.set_open(is_open, animate=animate)
+        _ = is_open, animate
 
     def set_inspector_open(self, is_open: bool, animate: bool = True) -> None:
-        self.inspector_toggle.setChecked(is_open)
-        self.inspector_dock.set_open(is_open, animate=animate)
+        _ = is_open, animate
 
     def set_console_open(self, is_open: bool, animate: bool = True) -> None:
-        self.console_toggle.setChecked(is_open)
-        self.console_dock.set_open(is_open, animate=animate)
+        _ = is_open, animate
 
     def load_starter_project(self) -> None:
         capture_template = str(Path.cwd().resolve() / "captures" / "capture_{timestamp}.png")
@@ -635,9 +937,9 @@ class MainWindow(QMainWindow):
         self.log_output.clear()
         self.append_log("Starter project loaded.")
         self.append_log("Open the Library drawer to add new blocks, drag blocks out into the canvas, or press Run.")
-        self.set_library_open(False, animate=False)
-        self.set_inspector_open(False, animate=False)
-        self.set_console_open(False, animate=False)
+        self.stage_preview.clear_preview()
+        self.stage_preview.set_status("Ready to run")
+        self._refresh_node_shelf()
 
     def add_node_from_palette(self, type_id: str) -> None:
         view_center = self.view.mapToScene(self.view.viewport().rect().center())
@@ -647,9 +949,11 @@ class MainWindow(QMainWindow):
         self.scene.clearSelection()
         item.setSelected(True)
         self.view.setFocus()
+        self._refresh_node_shelf()
 
     def _handle_node_selection(self, node_items) -> None:
         self.inspector.set_nodes(node_items)
+        self._refresh_node_shelf()
 
     def _handle_selection_activated(self, node_items) -> None:
         if not node_items:
@@ -669,6 +973,7 @@ class MainWindow(QMainWindow):
             count = len(targets)
             label = "nodes" if count != 1 else "node"
             self.append_log(f"Removed {count} {label} by dragging into the Library side.", reveal=False)
+            self._refresh_node_shelf()
 
     def open_screen_picker(self, node_targets) -> None:
         if node_targets is None:
@@ -736,9 +1041,8 @@ class MainWindow(QMainWindow):
         self.canvas_stage.show_error(message)
 
     def append_log(self, value: object, reveal: bool = False) -> None:
-        if reveal:
-            self.set_console_open(True)
         self.log_output.append_entry(value)
+        self.stage_preview.show_image_payload(value)
 
     def confirm_discard_changes(self) -> bool:
         if not self.is_dirty:
@@ -774,6 +1078,8 @@ class MainWindow(QMainWindow):
         self.scene.clear_graph()
         self.inspector.set_nodes([])
         self.append_log("Workspace cleared.", reveal=False)
+        self.stage_preview.clear_preview()
+        self._refresh_node_shelf()
 
     def save_project(self) -> None:
         if self.current_project_path is None:
@@ -833,14 +1139,16 @@ class MainWindow(QMainWindow):
         finally:
             self._loading = False
         self.inspector.set_nodes([])
-        self.set_inspector_open(False, animate=False)
         self._update_window_title()
+        self.stage_preview.clear_preview()
+        self._refresh_node_shelf()
         QTimer.singleShot(0, self.view.fit_content)
 
     def run_project(self) -> None:
         if self.execution_thread is not None and self.execution_thread.isRunning():
             return
         self.append_log("Running FlowMacro project...", reveal=True)
+        self.stage_preview.set_status("Running macro...")
         self.execution_thread = ExecutionThread(
             graph=self.scene.to_graph(),
             catalog=self.catalog,
@@ -850,14 +1158,15 @@ class MainWindow(QMainWindow):
         self.execution_thread.run_failed.connect(self._handle_run_failed)
         self.execution_thread.run_succeeded.connect(self._handle_run_succeeded)
         self.execution_thread.finished.connect(self._handle_run_finished)
-        self.run_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
+        self.stage_preview.run_button.setEnabled(False)
+        self.stage_preview.stop_button.setEnabled(True)
         self.execution_thread.start()
 
     def stop_project(self) -> None:
         if self.execution_thread is not None:
             self.execution_thread.stop()
             self.append_log("Stop requested...", reveal=True)
+            self.stage_preview.set_status("Stopping...")
 
     def _handle_runtime_log(self, message: object) -> None:
         self.append_log(message, reveal=True)
@@ -865,13 +1174,20 @@ class MainWindow(QMainWindow):
     def _handle_run_failed(self, message: str) -> None:
         self.show_error(message)
         self.append_log(f"Run failed: {message}", reveal=True)
+        self.stage_preview.set_status("Run failed")
 
     def _handle_run_succeeded(self) -> None:
         self.append_log("Run completed successfully.", reveal=True)
+        self.stage_preview.set_status("Run completed")
 
     def _handle_run_finished(self) -> None:
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
+        self.stage_preview.run_button.setEnabled(True)
+        self.stage_preview.stop_button.setEnabled(False)
+
+    def _refresh_node_shelf(self) -> None:
+        ordered_nodes = sorted(self.scene.node_items.values(), key=lambda item: (item.model.y, item.model.x))
+        selected_ids = {item.model.node_id for item in self.scene.selected_node_items()}
+        self.node_shelf.set_nodes(ordered_nodes, selected_ids)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.screen_picker is not None:
@@ -893,16 +1209,17 @@ def create_application() -> QApplication:
     app = QApplication([])
     app.setApplicationName("FlowMacro Studio")
     app.setStyle("Fusion")
+    app.setFont(QFont("Arial", 9))
     app.setStyleSheet(WINDOW_STYLESHEET)
 
     palette = app.palette()
-    palette.setColor(QPalette.Window, QColor("#08111c"))
-    palette.setColor(QPalette.Base, QColor("#08111c"))
-    palette.setColor(QPalette.AlternateBase, QColor("#0b1625"))
-    palette.setColor(QPalette.Text, QColor("#dce8ff"))
-    palette.setColor(QPalette.Button, QColor("#12233c"))
-    palette.setColor(QPalette.ButtonText, QColor("#edf5ff"))
-    palette.setColor(QPalette.Highlight, QColor("#2f78d7"))
+    palette.setColor(QPalette.Window, QColor("#eef3fb"))
+    palette.setColor(QPalette.Base, QColor("#ffffff"))
+    palette.setColor(QPalette.AlternateBase, QColor("#f6f9ff"))
+    palette.setColor(QPalette.Text, QColor("#304260"))
+    palette.setColor(QPalette.Button, QColor("#ffffff"))
+    palette.setColor(QPalette.ButtonText, QColor("#304260"))
+    palette.setColor(QPalette.Highlight, QColor("#4c97ff"))
     palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
     app.setPalette(palette)
     return app

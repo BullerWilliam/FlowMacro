@@ -220,13 +220,12 @@ class GraphRuntime:
         if node.type_id == "get_pixel_from_image":
             from PIL import Image
 
-            image_path = self._resolve_image_source(
-                self._value_for(node, "image", None),
-                self._value_for(node, "file_path", ""),
-            )
+            image_value = self._value_for(node, "image", None)
+            file_path_value = self._value_for(node, "file_path", "")
+            image_bytes = self._resolve_image_data(image_value, file_path_value)
             x = int(self._value_for(node, "x", 0))
             y = int(self._value_for(node, "y", 0))
-            with Image.open(image_path) as image_file:
+            with Image.open(io.BytesIO(image_bytes)) as image_file:
                 image = image_file.convert("RGB")
                 if x < 0 or y < 0 or x >= image.width or y >= image.height:
                     raise RuntimeError(
@@ -234,7 +233,8 @@ class GraphRuntime:
                     )
                 red, green, blue = image.getpixel((x, y))
             self.outputs_cache[node.node_id] = self._pixel_outputs(x, y, red, green, blue)
-            self.log(f"[Get Pixel from Image] {image_path} @ ({x}, {y}) -> rgb({red}, {green}, {blue}).")
+            image_label = self._describe_image_source(image_value, file_path_value)
+            self.log(f"[Get Pixel from Image] {image_label} @ ({x}, {y}) -> rgb({red}, {green}, {blue}).")
             return ["next"]
 
         if node.type_id == "mouse_move":
@@ -415,9 +415,6 @@ class GraphRuntime:
     def _prepare_output_file(self, raw_value: str) -> Path:
         return self._resolve_path(raw_value)
 
-    def _image_payload(self, path: Path) -> dict[str, str]:
-        return {"kind": "image", "path": str(path.resolve())}
-
     def _resolve_image_source(self, image_value: Any, file_path_value: Any) -> Path:
         if isinstance(image_value, dict) and image_value.get("kind") == "image" and image_value.get("path"):
             image_path = self._resolve_path(str(image_value["path"]))
@@ -442,6 +439,18 @@ class GraphRuntime:
 
         image_path = self._resolve_image_source(image_value, file_path_value)
         return image_path.read_bytes()
+
+    def _describe_image_source(self, image_value: Any, file_path_value: Any) -> str:
+        if isinstance(image_value, dict) and image_value.get("kind") == "image":
+            if image_value.get("path"):
+                return str(self._resolve_path(str(image_value["path"])))
+            if image_value.get("data_base64"):
+                return "in-memory image"
+        if isinstance(image_value, str) and image_value.strip():
+            return str(self._resolve_path(image_value))
+        if str(file_path_value).strip():
+            return str(self._resolve_path(str(file_path_value)))
+        return "in-memory image"
 
     def _pixel_outputs(self, x: int, y: int, red: int, green: int, blue: int) -> dict[str, Any]:
         pixel_value = {"r": red, "g": green, "b": blue, "x": x, "y": y}
