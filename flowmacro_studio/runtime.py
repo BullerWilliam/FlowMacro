@@ -1,14 +1,43 @@
 from __future__ import annotations
 
+import atexit
 import base64
 import io
 import math
+import re
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 from .models import ConnectionModel, GraphModel, NodeDefinition, NodeModel
+
+
+_HELD_KEYS: set[str] = set()
+_HELD_KEYS_LOCK = threading.Lock()
+
+
+def _release_all_held_keys() -> None:
+    with _HELD_KEYS_LOCK:
+        keys = list(_HELD_KEYS)
+        _HELD_KEYS.clear()
+    if not keys:
+        return
+    try:
+        import pyautogui
+
+        pyautogui.FAILSAFE = True
+        for key in reversed(keys):
+            try:
+                pyautogui.keyUp(key)
+            except Exception:
+                continue
+    except Exception:
+        return
+
+
+atexit.register(_release_all_held_keys)
 
 
 class GraphRuntime:
@@ -61,9 +90,14 @@ class GraphRuntime:
             raise RuntimeError("Add a Start node before running the macro.")
 
         self.log("FlowMacro Studio runtime started.")
-        for node in start_nodes:
-            self._walk(node.node_id)
-        self.log("FlowMacro Studio runtime finished.")
+        try:
+            for node in start_nodes:
+                self._walk(node.node_id)
+            self.log("FlowMacro Studio runtime finished.")
+        finally:
+            released = self._release_held_keys()
+            if released:
+                self.log(f"[Keyboard] Released {released} held key(s).")
 
     def _walk(self, node_id: str) -> None:
         if self.should_stop():
@@ -76,8 +110,7 @@ class GraphRuntime:
         definition = self.catalog[node.type_id]
         next_flow_ports = self._execute_node(node, definition)
         for output_key in next_flow_ports:
-            for connection in self.outgoing_flow.get((node.node_id, output_key), []):
-                self._walk(connection.to_node_id)
+            self._walk_flow_output(node.node_id, output_key)
 
     def _execute_node(self, node: NodeModel, definition: NodeDefinition) -> list[str]:
         if node.type_id == "start":
@@ -102,13 +135,48 @@ class GraphRuntime:
             condition = bool(self._value_for(node, "condition", False))
             self.outputs_cache[node.node_id] = {"condition": condition}
             self.log(f"[If] Condition evaluated to {condition}.")
-            return ["true_flow"] if condition else []
+            return ["true_flow", "next"] if condition else ["next"]
 
         if node.type_id == "if_else_block":
             condition = bool(self._value_for(node, "condition", False))
             self.outputs_cache[node.node_id] = {"condition": condition}
             self.log(f"[If Else] Condition evaluated to {condition}.")
-            return ["true_flow"] if condition else ["false_flow"]
+            return ["true_flow", "next"] if condition else ["false_flow", "next"]
+
+        if node.type_id == "repeat_block":
+            count = max(0, int(self._value_for(node, "count", 0)))
+            self.outputs_cache[node.node_id] = {"count": count}
+            self.log(f"[Repeat] Running nested stack {count} time(s).")
+            for _ in range(count):
+                self._walk_flow_output(node.node_id, "body")
+            return ["next"]
+
+        if node.type_id == "repeat_until_block":
+            self.outputs_cache[node.node_id] = {}
+            self.log("[Repeat Until] Running nested stack until condition becomes true.")
+            while not bool(self._value_for(node, "condition", False)):
+                self._walk_flow_output(node.node_id, "body")
+                if self.should_stop():
+                    raise RuntimeError("Execution stopped.")
+            self.log("[Repeat Until] Condition became true.")
+            return ["next"]
+
+        if node.type_id == "forever_block":
+            self.outputs_cache[node.node_id] = {}
+            self.log("[Forever] Running nested stack until stopped.")
+            while not self.should_stop():
+                self._walk_flow_output(node.node_id, "body")
+            return []
+
+        if node.type_id == "wait_until":
+            self.outputs_cache[node.node_id] = {}
+            self.log("[Wait Until] Waiting for condition to become true.")
+            while not bool(self._value_for(node, "condition", False)):
+                if self.should_stop():
+                    raise RuntimeError("Execution stopped.")
+                self._sleep_with_stop(0.05)
+            self.log("[Wait Until] Condition became true.")
+            return ["next"]
 
         if node.type_id == "log_text":
             value = self._value_for(node, "value", node.config.get("value", ""))
@@ -118,7 +186,7 @@ class GraphRuntime:
 
         if node.type_id == "set_variable":
             name = self._normalize_variable_name(self._value_for(node, "name", ""))
-            value = self._value_for(node, "value", 0)
+            value = self._coerce_variable_storage_value(self._value_for(node, "value", "0"))
             self.variables[name] = value
             self.pure_cache.clear()
             self.outputs_cache[node.node_id] = {}
@@ -273,6 +341,36 @@ class GraphRuntime:
             pyautogui.press(key)
             self.outputs_cache[node.node_id] = {}
             self.log(f"[Press Key] Pressed {key}.")
+            return ["next"]
+
+        if node.type_id == "press_key_combo":
+            import pyautogui
+
+            pyautogui.FAILSAFE = True
+            keys = self._combo_keys_for(node)
+            pyautogui.hotkey(*keys)
+            self.outputs_cache[node.node_id] = {}
+            self.log(f"[Press Key Combo] Pressed {' + '.join(keys)}.")
+            return ["next"]
+
+        if node.type_id == "hold_key":
+            import pyautogui
+
+            pyautogui.FAILSAFE = True
+            key = str(self._value_for(node, "key", "shift"))
+            self._hold_key(pyautogui, key)
+            self.outputs_cache[node.node_id] = {}
+            self.log(f"[Hold Key] Holding {key}.")
+            return ["next"]
+
+        if node.type_id == "release_key":
+            import pyautogui
+
+            pyautogui.FAILSAFE = True
+            key = str(self._value_for(node, "key", "shift"))
+            released = self._release_key(pyautogui, key)
+            self.outputs_cache[node.node_id] = {}
+            self.log(f"[Release Key] {'Released' if released else 'Skipped'} {key}.")
             return ["next"]
 
         if node.type_id == "type_text":
@@ -453,6 +551,10 @@ class GraphRuntime:
 
         raise RuntimeError(f"Unsupported pure node: {definition.title}")
 
+    def _walk_flow_output(self, node_id: str, output_key: str) -> None:
+        for connection in self.outgoing_flow.get((node_id, output_key), []):
+            self._walk(connection.to_node_id)
+
     def _value_for(self, node: NodeModel, port_key: str, fallback: Any) -> Any:
         incoming = self.incoming_data.get((node.node_id, port_key))
         if incoming is not None:
@@ -591,6 +693,30 @@ class GraphRuntime:
         except ValueError as exc:
             raise RuntimeError(f"Variable '{value}' is not a number and cannot be changed.") from exc
 
+    def _coerce_variable_storage_value(self, value: Any) -> Any:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value) if value.is_integer() else value
+        text = str(value)
+        stripped = text.strip()
+        if not stripped:
+            return text
+        if re.fullmatch(r"[+-]?\d+", stripped):
+            try:
+                return int(stripped)
+            except ValueError:
+                return text
+        if re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+\.|\.\d+)", stripped):
+            try:
+                number = float(stripped)
+                return int(number) if number.is_integer() else number
+            except ValueError:
+                return text
+        return text
+
     def _format_variable_value(self, value: Any) -> str:
         if isinstance(value, bool):
             return "true" if value else "false"
@@ -643,3 +769,58 @@ class GraphRuntime:
             "kind": "image",
             "data_base64": encoded,
         }
+
+    def _combo_keys_for(self, node: NodeModel) -> list[str]:
+        keys = [
+            str(self._value_for(node, "modifier_1", "")).strip(),
+            str(self._value_for(node, "modifier_2", "")).strip(),
+            str(self._value_for(node, "key", "s")).strip(),
+        ]
+        normalized = [key for key in keys if key]
+        if not normalized:
+            raise RuntimeError("Press Key Combo needs at least one key.")
+        deduped: list[str] = []
+        for key in normalized:
+            if key not in deduped:
+                deduped.append(key)
+        return deduped
+
+    def _hold_key(self, pyautogui_module, key: str) -> None:
+        normalized = key.strip()
+        if not normalized:
+            raise RuntimeError("Hold Key needs a key.")
+        with _HELD_KEYS_LOCK:
+            if normalized in _HELD_KEYS:
+                return
+            pyautogui_module.keyDown(normalized)
+            _HELD_KEYS.add(normalized)
+
+    def _release_key(self, pyautogui_module, key: str) -> bool:
+        normalized = key.strip()
+        if not normalized:
+            raise RuntimeError("Release Key needs a key.")
+        with _HELD_KEYS_LOCK:
+            if normalized not in _HELD_KEYS:
+                return False
+            pyautogui_module.keyUp(normalized)
+            _HELD_KEYS.remove(normalized)
+            return True
+
+    def _release_held_keys(self) -> int:
+        with _HELD_KEYS_LOCK:
+            keys = list(_HELD_KEYS)
+            _HELD_KEYS.clear()
+        if not keys:
+            return 0
+        try:
+            import pyautogui
+
+            pyautogui.FAILSAFE = True
+            for key in reversed(keys):
+                try:
+                    pyautogui.keyUp(key)
+                except Exception:
+                    continue
+        except Exception:
+            return len(keys)
+        return len(keys)

@@ -46,7 +46,7 @@ from .canvas import NODE_MIME_TYPE, NodeItem, NodeScene, NodeView
 from .inspector import InspectorPanel
 from .models import ConnectionModel, GraphModel, NodeDefinition, NodeModel
 from .node_definitions import build_node_catalog
-from .runtime import GraphRuntime
+from .runtime import GraphRuntime, _release_all_held_keys
 from .storage import load_graph, save_graph
 from .styles import WINDOW_STYLESHEET
 
@@ -373,7 +373,7 @@ class CanvasStage(QFrame):
         self.error_toast.adjustSize()
         self.error_toast.move((self.surface.width() - self.error_toast.width()) // 2, 16)
 
-CATEGORY_ORDER = ["Control", "Input", "Screen", "Files", "Logic", "Variables", "Values"]
+CATEGORY_ORDER = ["Control", "Input", "Screen", "Files", "Logic", "Variables"]
 
 CATEGORY_META = {
     "Control": {"label": "Control", "hint": "Start, timing, and flow", "color": "#ffab19"},
@@ -382,7 +382,6 @@ CATEGORY_META = {
     "Files": {"label": "Files", "hint": "Read, write, move, delete", "color": "#ffbf00"},
     "Logic": {"label": "Logic", "hint": "Compare, math, text, booleans", "color": "#59c059"},
     "Variables": {"label": "Variables", "hint": "Store values and read them later", "color": "#ff8c1a"},
-    "Values": {"label": "Values", "hint": "Numbers, text, booleans", "color": "#9966ff"},
 }
 
 
@@ -920,8 +919,27 @@ class MainWindow(QMainWindow):
     def set_console_open(self, is_open: bool, animate: bool = True) -> None:
         _ = is_open, animate
 
+    def _default_project_path(self) -> Path:
+        return (Path(__file__).resolve().parent.parent / "default.fmp").resolve()
+
     def load_starter_project(self) -> None:
-        capture_template = str(Path.cwd().resolve() / "captures" / "capture_{timestamp}.png")
+        default_project = self._default_project_path()
+        if default_project.exists():
+            try:
+                graph = load_graph(default_project)
+            except Exception as exc:  # noqa: BLE001
+                self.append_log(f"Default project load failed, using fallback starter: {exc}", reveal=True)
+            else:
+                self.load_graph(graph, project_path=None)
+                self.is_dirty = False
+                self._update_window_title()
+                self.log_output.clear()
+                self.append_log(f"Loaded default project from {default_project.name}.")
+                self.append_log("Open the Blocks drawer to add blocks, drag them into the canvas, or press Run.")
+                self.stage_preview.clear_preview()
+                self.stage_preview.set_status("Ready to run")
+                return
+
         graph = GraphModel(
             nodes=[
                 NodeModel("start-node", "start", 80, 120, {}),
@@ -929,19 +947,13 @@ class MainWindow(QMainWindow):
                 NodeModel("set-stage-node", "set_stage", 700, 120, {}),
                 NodeModel("pixel-node", "get_pixel_from_image", 1020, 120, {"file_path": "", "x": 320, "y": 180}),
                 NodeModel("screenshot-value", "take_screenshot", 620, 330, {}),
-                NodeModel("duration-value", "number_value", 340, 340, {"value": 400}),
-                NodeModel("x-value", "number_value", 980, 380, {"value": 320}),
-                NodeModel("y-value", "number_value", 980, 460, {"value": 180}),
             ],
             connections=[
                 ConnectionModel("start-node", "next", "delay-node", "flow_in"),
                 ConnectionModel("delay-node", "next", "set-stage-node", "flow_in"),
                 ConnectionModel("set-stage-node", "next", "pixel-node", "flow_in"),
-                ConnectionModel("duration-value", "value", "delay-node", "duration_ms"),
                 ConnectionModel("screenshot-value", "image", "set-stage-node", "image"),
                 ConnectionModel("screenshot-value", "image", "pixel-node", "image"),
-                ConnectionModel("x-value", "value", "pixel-node", "x"),
-                ConnectionModel("y-value", "value", "pixel-node", "y"),
             ],
         )
         self.load_graph(graph, project_path=None)
@@ -1186,6 +1198,7 @@ class MainWindow(QMainWindow):
     def _handle_run_finished(self) -> None:
         self.stage_preview.run_button.setEnabled(True)
         self.stage_preview.stop_button.setEnabled(False)
+        _release_all_held_keys()
 
     def _refresh_node_shelf(self) -> None:
         return
@@ -1196,6 +1209,7 @@ class MainWindow(QMainWindow):
         if self.execution_thread is not None and self.execution_thread.isRunning():
             self.execution_thread.stop()
             self.execution_thread.wait(1000)
+        _release_all_held_keys()
         if not self.confirm_discard_changes():
             event.ignore()
             return

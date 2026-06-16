@@ -1,0 +1,267 @@
+{
+  "file_type": "FlowMacroProject",
+  "version": 1,
+  "app": "FlowMacro Studio",
+  "nodes": [
+    {
+      "id": "start-node",
+      "type": "start",
+      "position": {
+        "x": 80.0,
+        "y": 120.0
+      },
+      "config": {}
+    },
+    {
+      "id": "5e1a2557bcbc499082593300146ec2d9",
+      "type": "press_key_combo",
+      "position": {
+        "x": 80.0,
+        "y": 637.0
+      },
+      "config": {
+        "modifier_1": "win",
+        "modifier_2": "",
+        "key": "r"
+      }
+    },
+    {
+      "id": "413cc044af93439eb3983953ebbf8d8a",
+      "type": "set_variable",
+      "position": {
+        "x": 80.0,
+        "y": 220.0
+      },
+      "config": {
+        "name": "target",
+        "value": "youtube.com"
+      }
+    },
+    {
+      "id": "097c311e4d9f4006a67b986c340ef29c",
+      "type": "get_variable",
+      "position": {
+        "x": 168.0,
+        "y": 1016.0
+      },
+      "config": {
+        "name": "target"
+      }
+    },
+    {
+      "id": "f809d63e2336443cb91a7290c606ca48",
+      "type": "type_text",
+      "position": {
+        "x": 80.0,
+        "y": 814.0
+      },
+      "config": {
+        "text": "ping ",
+        "interval_ms": 2
+      }
+    },
+    {
+      "id": "1820b2d1fc1847fb8060363cdde864af",
+      "type": "type_text",
+      "position": {
+        "x": 80.0,
+        "y": 953.0
+      },
+      "config": {
+        "text": "FlowMacro Studio",
+        "interval_ms": 2
+      }
+    },
+    {
+      "id": "224828ee075142168f2bfdcf2d3170dd",
+      "type": "type_text",
+      "position": {
+        "x": 80.0,
+        "y": 1168.0
+      },
+      "config": {
+        "text": " -n ",
+        "interval_ms": 2
+      }
+    },
+    {
+      "id": "737808edd3d542118c86f7b447a8c171",
+      "type": "type_text",
+      "position": {
+        "x": 80.0,
+        "y": 1307.0
+      },
+      "config": {
+        "text": "FlowMacro Studio",
+        "interval_ms": 2
+      }
+    },
+    {
+      "id": "cc041e776b8a4e178023f92bbcc81cf2",
+      "type": "get_variable",
+      "position": {
+        "x": 168.0,
+        "y": 1370.0
+      },
+      "config": {
+        "name": "count"
+      }
+    },
+    {
+      "id": "35807b041fe449158d34c93e547283f4",
+      "type": "set_variable",
+      "position": {
+        "x": 80.0,
+        "y": 359.0
+      },
+      "config": {
+        "name": "count",
+        "value": "13"
+      }
+    },
+    {
+      "id": "9a152416e9004fafb0b8b51b341f6f4e",
+      "type": "type_text",
+      "position": {
+        "x": 80.0,
+        "y": 1522.0
+      },
+      "config": {
+        "text": " -l ",
+        "interval_ms": 2
+      }
+    },
+    {
+      "id": "61434676f14846bfb66069662d40c883",
+      "type": "type_text",
+      "position": {
+        "x": 80.0,
+        "y": 1661.0
+      },
+      "config": {
+        "text": "FlowMacro Studio",
+        "interval_ms": 2
+      }
+    },
+    {
+      "id": "ce4bfc2ac3634f2eb33ed9a08f955cdc",
+      "type": "get_variable",
+      "position": {
+        "x": 168.0,
+        "y": 1724.0
+      },
+      "config": {
+        "name": "size"
+      }
+    },
+    {
+      "id": "8eff32f580724a3dba671e02e38bee41",
+      "type": "set_variable",
+      "position": {
+        "x": 80.0,
+        "y": 498.0
+      },
+      "config": {
+        "name": "size",
+        "value": "1000"
+      }
+    },
+    {
+      "id": "2517607744f14ab982c7f5a9eff8ca04",
+      "type": "press_key",
+      "position": {
+        "x": 80.0,
+        "y": 1876.0
+      },
+      "config": {
+        "key": "enter"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "start-node",
+      "from_port": "next",
+      "to_node": "413cc044af93439eb3983953ebbf8d8a",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "5e1a2557bcbc499082593300146ec2d9",
+      "from_port": "next",
+      "to_node": "f809d63e2336443cb91a7290c606ca48",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "f809d63e2336443cb91a7290c606ca48",
+      "from_port": "next",
+      "to_node": "1820b2d1fc1847fb8060363cdde864af",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "097c311e4d9f4006a67b986c340ef29c",
+      "from_port": "value",
+      "to_node": "1820b2d1fc1847fb8060363cdde864af",
+      "to_port": "text"
+    },
+    {
+      "from_node": "1820b2d1fc1847fb8060363cdde864af",
+      "from_port": "next",
+      "to_node": "224828ee075142168f2bfdcf2d3170dd",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "224828ee075142168f2bfdcf2d3170dd",
+      "from_port": "next",
+      "to_node": "737808edd3d542118c86f7b447a8c171",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "cc041e776b8a4e178023f92bbcc81cf2",
+      "from_port": "value",
+      "to_node": "737808edd3d542118c86f7b447a8c171",
+      "to_port": "text"
+    },
+    {
+      "from_node": "413cc044af93439eb3983953ebbf8d8a",
+      "from_port": "next",
+      "to_node": "35807b041fe449158d34c93e547283f4",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "737808edd3d542118c86f7b447a8c171",
+      "from_port": "next",
+      "to_node": "9a152416e9004fafb0b8b51b341f6f4e",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "ce4bfc2ac3634f2eb33ed9a08f955cdc",
+      "from_port": "value",
+      "to_node": "61434676f14846bfb66069662d40c883",
+      "to_port": "text"
+    },
+    {
+      "from_node": "9a152416e9004fafb0b8b51b341f6f4e",
+      "from_port": "next",
+      "to_node": "61434676f14846bfb66069662d40c883",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "35807b041fe449158d34c93e547283f4",
+      "from_port": "next",
+      "to_node": "8eff32f580724a3dba671e02e38bee41",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "8eff32f580724a3dba671e02e38bee41",
+      "from_port": "next",
+      "to_node": "5e1a2557bcbc499082593300146ec2d9",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "61434676f14846bfb66069662d40c883",
+      "from_port": "next",
+      "to_node": "2517607744f14ab982c7f5a9eff8ca04",
+      "to_port": "flow_in"
+    }
+  ]
+}

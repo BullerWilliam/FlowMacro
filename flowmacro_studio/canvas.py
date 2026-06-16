@@ -153,6 +153,9 @@ class NodeItem(QGraphicsObject):
         self.choice_input_rects: dict[str, QRectF] = {}
         self.output_slot_rects: dict[str, QRectF] = {}
         self.output_label_rects: dict[str, QRectF] = {}
+        self.flow_output_points: dict[str, QPointF] = {}
+        self.cavity_rects: dict[str, QRectF] = {}
+        self.branch_label_rects: dict[str, QRectF] = {}
         self.header_rect = QRectF()
         self.output_rail_rect = QRectF()
         self.width = 248.0
@@ -184,15 +187,100 @@ class NodeItem(QGraphicsObject):
     def refresh_layout(self) -> None:
         data_inputs = [port for port in self.definition.inputs if port.type_name != "flow"]
         data_outputs = [port for port in self.definition.outputs if port.type_name != "flow"]
+        command_fields = self.command_inline_fields()
         self.input_socket_rects = {}
         self.input_label_rects = {}
         self.choice_input_rects = {}
         self.output_slot_rects = {}
         self.output_label_rects = {}
+        self.flow_output_points = {}
+        self.cavity_rects = {}
+        self.branch_label_rects = {}
         self.header_rect = QRectF()
         self.output_rail_rect = QRectF()
 
-        if self.is_command_block:
+        if self.is_c_block:
+            title_font = QFont(QApplication.font())
+            title_font.setPointSize(10)
+            title_font.setBold(True)
+            label_font = QFont(QApplication.font())
+            label_font.setPointSizeF(7.8)
+            label_font.setBold(True)
+            title_metrics = QFontMetricsF(title_font)
+            label_metrics = QFontMetricsF(label_font)
+
+            header_top = 12.0
+            header_height = 38.0
+            left_padding = 18.0
+            inner_left = 28.0
+            mouth_right = 220.0
+            section_gap = 12.0
+            default_branch_height = 42.0
+            branch_footer = 16.0
+            current_y = header_top + header_height + 12.0
+
+            if self.definition.type_id == "if_block":
+                text_width = (
+                    title_metrics.horizontalAdvance("if")
+                    + title_metrics.horizontalAdvance("then")
+                    + self.choice_input_width("condition", label_metrics)
+                    + 44.0
+                )
+            elif self.definition.type_id == "if_else_block":
+                text_width = (
+                    title_metrics.horizontalAdvance("if")
+                    + title_metrics.horizontalAdvance("then")
+                    + self.choice_input_width("condition", label_metrics)
+                    + 44.0
+                )
+            elif self.definition.type_id == "repeat_block":
+                text_width = (
+                    title_metrics.horizontalAdvance("repeat")
+                    + max(72.0, self.choice_input_width("count", label_metrics))
+                    + 28.0
+                )
+            elif self.definition.type_id == "repeat_until_block":
+                text_width = (
+                    title_metrics.horizontalAdvance("repeat until")
+                    + self.choice_input_width("condition", label_metrics)
+                    + 34.0
+                )
+            else:
+                text_width = title_metrics.horizontalAdvance("forever") + 30.0
+
+            self.width = max(236.0, text_width + 54.0)
+            mouth_right = max(184.0, self.width - 18.0)
+            self.header_rect = QRectF(left_padding - 2.0, header_top, self.width - 32.0, header_height)
+
+            if self.definition.type_id in {"if_block", "if_else_block", "repeat_until_block"}:
+                condition_width = max(68.0, self.choice_input_width("condition", label_metrics))
+                condition_x = left_padding + 28.0
+                if self.definition.type_id == "repeat_until_block":
+                    condition_x = left_padding + 98.0
+                condition_rect = QRectF(condition_x, header_top + 6.0, condition_width, 26.0)
+                self.input_socket_rects["condition"] = condition_rect
+                self.choice_input_rects["condition"] = condition_rect
+            elif self.definition.type_id == "repeat_block":
+                count_width = max(70.0, self.choice_input_width("count", label_metrics))
+                count_rect = QRectF(left_padding + 62.0, header_top + 6.0, count_width, 26.0)
+                self.input_socket_rects["count"] = count_rect
+
+            for branch_key in self.c_branch_output_keys():
+                child = self.connected_flow_output_node(branch_key)
+                branch_height = default_branch_height
+                if child is not None:
+                    branch_height = max(default_branch_height, child.estimated_flow_stack_height() + 6.0)
+                cavity_rect = QRectF(inner_left, current_y, mouth_right - inner_left, branch_height)
+                self.cavity_rects[branch_key] = cavity_rect
+                self.flow_output_points[branch_key] = QPointF(inner_left, current_y)
+                if branch_key == "false_flow":
+                    self.branch_label_rects[branch_key] = QRectF(left_padding, current_y - 22.0, 48.0, 16.0)
+                current_y += branch_height + branch_footer
+
+            self.height = current_y + 12.0
+            if self.continuation_output_key() is not None:
+                self.flow_output_points[self.continuation_output_key()] = QPointF(self.flow_anchor_x(), self.height)
+        elif self.is_command_block:
             title_font = QFont(QApplication.font())
             title_font.setPointSize(10)
             title_font.setBold(True)
@@ -217,7 +305,7 @@ class NodeItem(QGraphicsObject):
             rail_port_gap = 8.0
             rail_port_width = 18.0
             max_input_label_width = max(
-                [label_metrics.horizontalAdvance(port.label) for port in data_inputs],
+                [label_metrics.horizontalAdvance(label) for _, label, _ in command_fields],
                 default=0.0,
             )
             title_width = title_metrics.horizontalAdvance(self.definition.title)
@@ -228,9 +316,10 @@ class NodeItem(QGraphicsObject):
             socket_left = left_padding + label_width + label_gap
             max_socket_width = max(110.0, title_width + 36.0)
             row_rects: list[QRectF] = []
-            for port in data_inputs:
-                child = self.connected_input_node(port.key)
-                choice_width = self.choice_input_width(port.key, label_metrics)
+            for field_key, _, field_type in command_fields:
+                child = self.connected_input_node(field_key)
+                choice_width = self.choice_input_width(field_key, label_metrics)
+                type_name = self.inline_field_port_type(field_key, field_type)
                 slot_width = max(
                     choice_width,
                     (child.width + 14.0) if child is not None else 110.0,
@@ -238,10 +327,10 @@ class NodeItem(QGraphicsObject):
                 slot_height = max(row_min_height, (child.height + 10.0) if child is not None else row_min_height)
                 row_rect = QRectF(left_padding, current_y - 1.0, label_width + label_gap + slot_width, slot_height + 2.0)
                 row_rects.append(row_rect)
-                self.input_label_rects[port.key] = QRectF(left_padding, current_y, label_width, slot_height)
-                self.input_socket_rects[port.key] = QRectF(socket_left, current_y, slot_width, slot_height)
-                if self.is_choice_input(port.key):
-                    self.choice_input_rects[port.key] = QRectF(socket_left, current_y, slot_width, slot_height)
+                self.input_label_rects[field_key] = QRectF(left_padding, current_y, label_width, slot_height)
+                self.input_socket_rects[field_key] = QRectF(socket_left, current_y, slot_width, slot_height)
+                if self.is_choice_input(field_key):
+                    self.choice_input_rects[field_key] = QRectF(socket_left, current_y, slot_width, slot_height)
                 max_socket_width = max(max_socket_width, slot_width)
                 current_y += slot_height + row_gap
 
@@ -296,30 +385,38 @@ class NodeItem(QGraphicsObject):
                 title_metrics = QFontMetricsF(title_font)
                 label_metrics = QFontMetricsF(label_font)
                 header_top = 10.0
-                header_height = 24.0
-                header_gap = 14.0
+                header_height = 28.0
+                header_gap = 20.0
                 body_bottom = 14.0
                 left_padding = 18.0
-                label_gap = 12.0
+                label_gap = 14.0
                 row_gap = 10.0
                 row_min_height = 22.0
-                right_padding = 18.0
+                right_padding = 20.0
 
                 max_input_label_width = max(
                     [label_metrics.horizontalAdvance(port.label) for port in data_inputs],
                     default=0.0,
                 )
                 title_width = title_metrics.horizontalAdvance(self.definition.title)
-                label_width = max(42.0, max_input_label_width + 6.0)
+                label_width = max(56.0, max_input_label_width + 8.0)
                 socket_left = left_padding + label_width + label_gap
                 current_y = header_top + header_height + header_gap
                 max_socket_width = 92.0
                 for port in data_inputs:
                     child = self.connected_input_node(port.key)
                     choice_width = self.choice_input_width(port.key, label_metrics)
+                    field = self.config_field_for_port(port.key)
+                    default_socket_width = 96.0
+                    if port.type_name in {"number", "boolean"}:
+                        default_socket_width = 74.0
+                    elif port.type_name == "image":
+                        default_socket_width = 96.0
+                    if field is not None and field.field_type in {"int", "float"}:
+                        default_socket_width = 74.0
                     slot_width = max(
                         choice_width,
-                        (child.width + 12.0) if child is not None else 92.0,
+                        (child.width + 12.0) if child is not None else default_socket_width,
                     )
                     slot_height = max(row_min_height, (child.height + 8.0) if child is not None else row_min_height)
                     self.input_label_rects[port.key] = QRectF(left_padding, current_y, label_width, slot_height)
@@ -329,7 +426,7 @@ class NodeItem(QGraphicsObject):
                     max_socket_width = max(max_socket_width, slot_width)
                     current_y += slot_height + row_gap
 
-                self.width = max(176.0, socket_left + max_socket_width + right_padding, title_width + 60.0)
+                self.width = max(210.0, socket_left + max_socket_width + right_padding, title_width + 60.0)
                 self.height = max(48.0, current_y + body_bottom - row_gap)
                 self.header_rect = QRectF(left_padding - 2.0, header_top, self.width - (left_padding * 2) + 4.0, header_height)
             else:
@@ -347,7 +444,8 @@ class NodeItem(QGraphicsObject):
         for port in flow_inputs:
             self.inputs[port.key].setPos(self.flow_anchor_x(), 0.0)
         for index, port in enumerate(flow_outputs):
-            self.outputs[port.key].setPos(self.flow_output_x(index, len(flow_outputs)), self.height)
+            output_point = self.flow_output_points.get(port.key, QPointF(self.flow_output_x(index, len(flow_outputs)), self.height))
+            self.outputs[port.key].setPos(output_point)
 
         if self.is_command_block:
             for port in data_inputs:
@@ -405,6 +503,8 @@ class NodeItem(QGraphicsObject):
             painter.setFont(value_font)
             painter.setPen(QColor("#ffffff"))
             painter.drawText(QRectF(18, 0, self.width - 36, self.height), Qt.AlignCenter, self.literal_value_text())
+        elif self.is_c_block:
+            self._paint_c_block_header(painter)
         elif not self.is_boolean_reporter:
             painter.setPen(QColor("#ffffff"))
             title_font = painter.font()
@@ -423,7 +523,9 @@ class NodeItem(QGraphicsObject):
             painter.setFont(title_font)
             painter.drawText(self.title_rect(), Qt.AlignVCenter | Qt.AlignLeft, self.definition.title)
 
-        if self.is_command_block:
+        if self.is_c_block:
+            self._paint_c_block_body(painter)
+        elif self.is_command_block:
             self._paint_command_ports(painter)
         elif not self.is_literal_value_node:
             self._paint_reporter_ports(painter)
@@ -434,21 +536,76 @@ class NodeItem(QGraphicsObject):
         label_font.setBold(True)
         painter.setFont(label_font)
 
-        for port in self.definition.inputs:
-            if port.type_name == "flow":
-                continue
-            label_rect = self.input_label_rects.get(port.key)
-            socket = self.input_socket_rects.get(port.key)
+        for field_key, field_label, field_type in self.command_inline_fields():
+            label_rect = self.input_label_rects.get(field_key)
+            socket = self.input_socket_rects.get(field_key)
             if label_rect is None or socket is None:
                 continue
             painter.setPen(with_alpha(QColor("#ffffff"), 245))
-            painter.drawText(label_rect, Qt.AlignVCenter | Qt.AlignLeft, port.label)
-            if self.is_choice_input(port.key):
-                self._paint_choice_input(painter, socket, port.key, label_font)
+            painter.drawText(label_rect, Qt.AlignVCenter | Qt.AlignLeft, field_label)
+            if self.is_choice_input(field_key):
+                self._paint_choice_input(painter, socket, field_key, label_font)
             else:
-                self._paint_input_socket(painter, socket, port.type_name, port.key)
+                self._paint_input_socket(painter, socket, self.inline_field_port_type(field_key, field_type), field_key)
 
         painter.setPen(with_alpha(QColor("#ffffff"), 235))
+
+    def _paint_c_block_header(self, painter: QPainter) -> None:
+        painter.save()
+        painter.setPen(QColor("#ffffff"))
+        title_font = painter.font()
+        title_font.setPointSize(10)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+
+        if self.definition.type_id == "if_block":
+            painter.drawText(QRectF(16, 12, 22, 24), Qt.AlignVCenter | Qt.AlignLeft, "if")
+            condition_rect = self.input_socket_rects.get("condition")
+            if condition_rect is not None:
+                self._paint_input_socket(painter, condition_rect, "boolean", "condition")
+                painter.drawText(
+                    QRectF(condition_rect.right() + 8.0, 12.0, 40.0, 24.0),
+                    Qt.AlignVCenter | Qt.AlignLeft,
+                    "then",
+                )
+        elif self.definition.type_id == "if_else_block":
+            painter.drawText(QRectF(16, 12, 22, 24), Qt.AlignVCenter | Qt.AlignLeft, "if")
+            condition_rect = self.input_socket_rects.get("condition")
+            if condition_rect is not None:
+                self._paint_input_socket(painter, condition_rect, "boolean", "condition")
+                painter.drawText(
+                    QRectF(condition_rect.right() + 8.0, 12.0, 40.0, 24.0),
+                    Qt.AlignVCenter | Qt.AlignLeft,
+                    "then",
+                )
+        elif self.definition.type_id == "repeat_block":
+            painter.drawText(QRectF(16, 12, 54, 24), Qt.AlignVCenter | Qt.AlignLeft, "repeat")
+            count_rect = self.input_socket_rects.get("count")
+            if count_rect is not None:
+                self._paint_input_socket(painter, count_rect, "number", "count")
+        elif self.definition.type_id == "repeat_until_block":
+            painter.drawText(QRectF(16, 12, 86, 24), Qt.AlignVCenter | Qt.AlignLeft, "repeat until")
+            condition_rect = self.input_socket_rects.get("condition")
+            if condition_rect is not None:
+                self._paint_input_socket(painter, condition_rect, "boolean", "condition")
+        else:
+            painter.drawText(QRectF(16, 12, self.width - 32, 24), Qt.AlignVCenter | Qt.AlignLeft, "forever")
+        painter.restore()
+
+    def _paint_c_block_body(self, painter: QPainter) -> None:
+        painter.save()
+        painter.setFont(QFont(QApplication.font()))
+        painter.setPen(with_alpha(QColor("#ffffff"), 228))
+        for branch_key, rect in self.cavity_rects.items():
+            cavity_fill = with_alpha(QColor("#111827"), 20)
+            painter.setBrush(cavity_fill)
+            painter.setPen(with_alpha(QColor("#ffffff"), 58))
+            painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
+            label_rect = self.branch_label_rects.get(branch_key)
+            if label_rect is not None:
+                painter.setPen(with_alpha(QColor("#ffffff"), 240))
+                painter.drawText(label_rect, Qt.AlignVCenter | Qt.AlignLeft, "else")
+        painter.restore()
 
     def _paint_reporter_ports(self, painter: QPainter) -> None:
         label_font = painter.font()
@@ -478,6 +635,10 @@ class NodeItem(QGraphicsObject):
     @property
     def is_command_block(self) -> bool:
         return self.definition.is_flow_node
+
+    @property
+    def is_c_block(self) -> bool:
+        return self.definition.type_id in {"if_block", "if_else_block", "repeat_block", "repeat_until_block", "forever_block"}
 
     @property
     def is_boolean_reporter(self) -> bool:
@@ -524,7 +685,21 @@ class NodeItem(QGraphicsObject):
             return QRectF(24, 32 + index * 12, self.width - 48, 12)
         return QRectF(18, 24 + index * 12, self.width - 36, 12)
 
+    def c_branch_output_keys(self) -> list[str]:
+        if self.definition.type_id == "if_block":
+            return ["true_flow"]
+        if self.definition.type_id == "if_else_block":
+            return ["true_flow", "false_flow"]
+        if self.definition.type_id in {"repeat_block", "repeat_until_block", "forever_block"}:
+            return ["body"]
+        return []
+
+    def continuation_output_key(self) -> str | None:
+        return "next" if "next" in self.outputs else None
+
     def block_path(self) -> QPainterPath:
+        if self.is_c_block:
+            return self._c_block_path()
         if self.is_command_block:
             return self._command_path()
         if self.is_boolean_reporter:
@@ -535,7 +710,7 @@ class NodeItem(QGraphicsObject):
 
     def highlight_path(self) -> QPainterPath:
         path = self.block_path()
-        if self.is_command_block and not self.header_rect.isNull():
+        if (self.is_command_block or self.is_c_block) and not self.header_rect.isNull():
             rect = self.header_rect.adjusted(2, 4, -6, -4)
         else:
             rect = path.boundingRect().adjusted(6, 5, -24, -self.height * 0.55)
@@ -576,6 +751,55 @@ class NodeItem(QGraphicsObject):
         path.closeSubpath()
         return path
 
+    def _c_block_path(self) -> QPainterPath:
+        notch_x = self.flow_anchor_x() - 18.0
+        notch_w = 26.0
+        notch_h = 7.0
+        radius = 11.0
+        inner_left = 28.0
+        lip_depth = 10.0
+
+        path = QPainterPath(QPointF(radius, 0))
+        if self.definition.flow_input_keys:
+            path.lineTo(notch_x, 0)
+            path.lineTo(notch_x + 4, notch_h)
+            path.lineTo(notch_x + notch_w - 4, notch_h)
+            path.lineTo(notch_x + notch_w, 0)
+        path.lineTo(self.width - radius, 0)
+        path.quadTo(self.width, 0, self.width, radius)
+        path.lineTo(self.width, self.height - radius)
+        path.quadTo(self.width, self.height, self.width - radius, self.height)
+
+        if self.continuation_output_key() is not None:
+            tab_x = self.flow_anchor_x() - 20.0
+            tab_w = 32.0
+            tab_h = 8.0
+            path.lineTo(tab_x + tab_w, self.height)
+            path.lineTo(tab_x + tab_w - 4, self.height + tab_h)
+            path.lineTo(tab_x + 4, self.height + tab_h)
+            path.lineTo(tab_x, self.height)
+
+        path.lineTo(radius, self.height)
+        path.quadTo(0, self.height, 0, self.height - radius)
+
+        for branch_key in reversed(self.c_branch_output_keys()):
+            cavity_rect = self.cavity_rects.get(branch_key)
+            if cavity_rect is None:
+                continue
+            lower_y = cavity_rect.bottom() + lip_depth
+            upper_y = cavity_rect.top() - lip_depth
+            path.lineTo(0, lower_y)
+            path.lineTo(inner_left - 8.0, lower_y)
+            path.lineTo(inner_left, cavity_rect.bottom())
+            path.lineTo(inner_left, cavity_rect.top())
+            path.lineTo(inner_left - 8.0, upper_y)
+            path.lineTo(0, upper_y)
+
+        path.lineTo(0, radius)
+        path.quadTo(0, 0, radius, 0)
+        path.closeSubpath()
+        return path
+
     def _reporter_path(self) -> QPainterPath:
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, self.width, self.height), self.height / 2.2, self.height / 2.2)
@@ -608,6 +832,34 @@ class NodeItem(QGraphicsObject):
                 return connection.source_port.node_item
         return None
 
+    def connected_flow_output_node(self, port_key: str) -> "NodeItem | None":
+        port = self.outputs.get(port_key)
+        if port is None:
+            return None
+        for connection in port.connections:
+            if connection.source_port is port and connection.target_port is not None:
+                return connection.target_port.node_item
+        return None
+
+    def estimated_flow_stack_height(self, visited: set[str] | None = None) -> float:
+        seen = visited or set()
+        if self.model.node_id in seen:
+            return self.height
+        seen = set(seen)
+        seen.add(self.model.node_id)
+        total_height = self.height
+        for port_key in self.definition.flow_output_keys:
+            child = self.connected_flow_output_node(port_key)
+            if child is None:
+                continue
+            child_height = child.estimated_flow_stack_height(seen)
+            output_point = self.flow_output_points.get(port_key)
+            if self.is_c_block and port_key in self.c_branch_output_keys() and output_point is not None:
+                total_height = max(total_height, output_point.y() + child_height + 12.0)
+            else:
+                total_height = max(total_height, self.height + child_height)
+        return total_height
+
     def literal_value_text(self) -> str:
         value = self.model.config.get("value", "")
         if self.definition.type_id == "number_value":
@@ -623,6 +875,41 @@ class NodeItem(QGraphicsObject):
 
     def config_field_for_port(self, port_key: str) -> ConfigField | None:
         return next((field for field in self.definition.config_fields if field.key == port_key), None)
+
+    def command_inline_fields(self) -> list[tuple[str, str, str]]:
+        fields: list[tuple[str, str, str]] = [
+            (port.key, port.label, self._field_type_for_port(port.key))
+            for port in self.definition.inputs
+            if port.type_name != "flow"
+        ]
+        existing_keys = {key for key, _, _ in fields}
+        for field in self.definition.config_fields:
+            if field.key in existing_keys:
+                continue
+            if field.field_type not in {"choice", "text", "int", "float"}:
+                continue
+            fields.append((field.key, field.label or field.key, field.field_type))
+        return fields
+
+    def inline_field_port_type(self, field_key: str, field_type: str) -> str:
+        port = next((port for port in self.definition.inputs if port.key == field_key), None)
+        if port is not None:
+            return port.type_name
+        if field_type in {"int", "float"}:
+            return "number"
+        if field_type == "choice":
+            field = self.config_field_for_port(field_key)
+            if field is not None and set(field.choices).issubset({"true", "false"}):
+                return "boolean"
+            return "text"
+        return "text"
+
+    def _field_type_for_port(self, port_key: str) -> str:
+        field = self.config_field_for_port(port_key)
+        if field is not None:
+            return field.field_type
+        port = next((port for port in self.definition.inputs if port.key == port_key), None)
+        return port.type_name if port is not None else "text"
 
     def is_choice_input(self, port_key: str) -> bool:
         field = self.config_field_for_port(port_key)
@@ -643,8 +930,12 @@ class NodeItem(QGraphicsObject):
             return
         value = str(self.model.config.get(port_key, field.default))
         painter.save()
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(with_alpha(QColor("#ffffff"), 230))
+        stroke = with_alpha(port_color("text"), 190)
+        fill = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        fill.setColorAt(0.0, with_alpha(QColor("#ffffff"), 232))
+        fill.setColorAt(1.0, with_alpha(stroke, 120))
+        painter.setPen(QPen(stroke, 1.1))
+        painter.setBrush(fill)
         painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
         choice_font = QFont(font)
         choice_font.setBold(True)
@@ -666,8 +957,12 @@ class NodeItem(QGraphicsObject):
         if self.connected_input_node(port_key) is not None:
             return
         field = self.config_field_for_port(port_key)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(with_alpha(QColor("#ffffff"), 220))
+        stroke = with_alpha(port_color(type_name), 205)
+        fill = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        fill.setColorAt(0.0, with_alpha(QColor("#ffffff"), 238))
+        fill.setColorAt(1.0, with_alpha(port_color(type_name), 128))
+        painter.setPen(QPen(stroke, 1.15))
+        painter.setBrush(fill)
         if type_name == "boolean":
             diamond = QPainterPath()
             diamond.moveTo(rect.left() + 10, rect.top())
@@ -794,7 +1089,7 @@ class NodeItem(QGraphicsObject):
             field = self.config_field_for_port(port_key)
             if field is None or field.field_type == "choice":
                 continue
-            if field.field_type not in {"text", "int", "float"}:
+            if field.field_type not in {"text", "int", "float", "bool"}:
                 continue
             return port_key
         return None
@@ -829,6 +1124,8 @@ class NodeItem(QGraphicsObject):
         if field is None:
             return ""
         value = self.model.config.get(port_key, field.default)
+        if field.field_type == "bool":
+            return "true" if bool(value) else "false"
         if field.field_type == "text":
             text = str(value)
             if len(text) > 18:
@@ -857,6 +1154,10 @@ class NodeItem(QGraphicsObject):
 
         if field.field_type == "text":
             next_value, accepted = QInputDialog.getText(None, title, label, text=str(current))
+        elif field.field_type == "bool":
+            current_text = "true" if bool(current) else "false"
+            next_text, accepted = QInputDialog.getItem(None, title, label, ["true", "false"], 0 if current_text == "true" else 1, False)
+            next_value = next_text == "true"
         elif field.field_type == "int":
             default_value = self._coerce_int_value(current, int(field.default))
             minimum = int(field.minimum) if field.minimum is not None else -2147483647
@@ -1154,8 +1455,9 @@ class NodeScene(QGraphicsScene):
 
     def remove_nodes(self, node_items: list[NodeItem], emit_dirty: bool = True) -> bool:
         removed_any = False
+        expanded_nodes = self._expand_removal_nodes(node_items)
         seen_node_ids: set[str] = set()
-        for node_item in node_items:
+        for node_item in expanded_nodes:
             node_id = node_item.model.node_id
             if node_id in seen_node_ids or node_id not in self.node_items:
                 continue
@@ -1172,6 +1474,39 @@ class NodeScene(QGraphicsScene):
                 self.project_dirty.emit()
             self._emit_selected_node()
         return removed_any
+
+    def _expand_removal_nodes(self, roots: list[NodeItem]) -> list[NodeItem]:
+        ordered: list[NodeItem] = []
+        seen: set[str] = set()
+
+        def visit(node_item: NodeItem) -> None:
+            node_id = node_item.model.node_id
+            if node_id in seen or node_id not in self.node_items:
+                return
+            seen.add(node_id)
+
+            # Delete attached input subgraphs first so children are removed with their parent.
+            for input_port in node_item.inputs.values():
+                if input_port.definition.type_name == "flow":
+                    continue
+                incoming = self._incoming_connection_for(input_port)
+                if incoming is not None:
+                    visit(incoming.source_port.node_item)
+
+            # Delete nested/stacked flow descendants next.
+            for output_port in node_item.outputs.values():
+                if output_port.definition.type_name != "flow":
+                    continue
+                for connection in list(output_port.connections):
+                    target_port = connection.target_port
+                    if target_port is not None:
+                        visit(target_port.node_item)
+
+            ordered.append(node_item)
+
+        for node_item in roots:
+            visit(node_item)
+        return ordered
 
     def delete_selected(self) -> None:
         removed_any = False
@@ -1234,12 +1569,16 @@ class NodeScene(QGraphicsScene):
                     self._layout_descendants(output_port.node_item, visited)
 
     def _stack_flow_connection(self, source_node: NodeItem, target_node: NodeItem, output_key: str) -> None:
-        output_keys = source_node.definition.flow_output_keys
-        if output_key not in output_keys:
+        output_port = source_node.outputs.get(output_key)
+        if output_port is None:
             return
-        index = output_keys.index(output_key)
-        target_x = source_node.pos().x() + source_node.flow_output_x(index, len(output_keys)) - target_node.flow_anchor_x()
-        target_y = source_node.pos().y() + source_node.height
+        input_port = next((port for port in target_node.inputs.values() if port.definition.type_name == "flow"), None)
+        if input_port is None:
+            return
+        output_center = output_port.scene_center()
+        input_local = input_port.pos()
+        target_x = output_center.x() - input_local.x()
+        target_y = output_center.y() - input_local.y()
         target_node.setPos(target_x, target_y)
 
     def begin_block_drag(self, node_item: NodeItem) -> None:
@@ -1315,7 +1654,7 @@ class NodeScene(QGraphicsScene):
         input_port = flow_inputs[0]
         input_center = input_port.scene_center()
 
-        best_match: tuple[float, PortItem] | None = None
+        best_match: tuple[float, PortItem, ConnectionItem | None] | None = None
         for candidate in self.node_items.values():
             if candidate is node_item or candidate.model.node_id in {child.model.node_id for child in self._flow_descendants(node_item)}:
                 continue
@@ -1323,19 +1662,30 @@ class NodeScene(QGraphicsScene):
                 if output_port.definition.type_name != "flow":
                     continue
                 connection = self._outgoing_connection_for(output_port)
-                if connection is not None:
-                    continue
                 output_center = output_port.scene_center()
                 distance = (output_center - input_center).manhattanLength()
                 if distance > 90:
                     continue
                 if best_match is None or distance < best_match[0]:
-                    best_match = (distance, output_port)
+                    best_match = (distance, output_port, connection)
 
         if best_match is None:
             return False
 
-        self._connect_ports(best_match[1], input_port)
+        _, output_port, displaced_connection = best_match
+        displaced_target = displaced_connection.target_port if displaced_connection is not None else None
+        if displaced_connection is not None:
+            self.remove_connection(displaced_connection, emit_dirty=False)
+
+        if not self._connect_ports(output_port, input_port):
+            if displaced_connection is not None and displaced_target is not None:
+                self._connect_ports(output_port, displaced_target)
+            return False
+
+        if displaced_target is not None:
+            tail_output = self._stack_tail_output_port(node_item)
+            if tail_output is None or not self._connect_ports(tail_output, displaced_target):
+                return False
         return True
 
     def _snap_reporter_block(self, node_item: NodeItem) -> bool:
@@ -1399,6 +1749,44 @@ class NodeScene(QGraphicsScene):
 
     def _outgoing_connection_for(self, output_port: PortItem) -> ConnectionItem | None:
         return next((connection for connection in output_port.connections if connection.source_port is output_port), None)
+
+    def _stack_tail_output_port(self, root_node: NodeItem) -> PortItem | None:
+        current = root_node
+        visited: set[str] = set()
+        while current.model.node_id not in visited:
+            visited.add(current.model.node_id)
+            continuation_key = current.continuation_output_key() if current.is_c_block else None
+            ordered_keys = []
+            if continuation_key is not None:
+                ordered_keys.append(continuation_key)
+            ordered_keys.extend(
+                key
+                for key in current.definition.flow_output_keys
+                if key not in ordered_keys
+            )
+            if not ordered_keys:
+                return None
+
+            next_connection: ConnectionItem | None = None
+            next_output: PortItem | None = None
+            for output_key in ordered_keys:
+                output_port = current.outputs.get(output_key)
+                if output_port is None or output_port.definition.type_name != "flow":
+                    continue
+                connection = self._outgoing_connection_for(output_port)
+                if connection is None:
+                    return output_port
+                if next_connection is None and output_key == continuation_key:
+                    next_connection = connection
+                    next_output = output_port
+
+            if next_connection is None:
+                return next_output
+            target_port = next_connection.target_port
+            if target_port is None:
+                return next_output
+            current = target_port.node_item
+        return None
 
     def _align_connection(self, connection: ConnectionItem) -> None:
         source_port = connection.source_port
