@@ -1,0 +1,383 @@
+{
+  "file_type": "FlowMacroProject",
+  "version": 1,
+  "app": "FlowMacro Studio",
+  "nodes": [
+    {
+      "id": "ee2cdacf814342ef88585beb5b4c6133",
+      "type": "start",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 1021.2936430838231
+      },
+      "config": {}
+    },
+    {
+      "id": "f2a5f2aeb3c746cdb41d4f013c4bdc17",
+      "type": "press_key_combo",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 1437.293643083823
+      },
+      "config": {
+        "modifier_1": "win",
+        "modifier_2": "shift",
+        "key": "s"
+      }
+    },
+    {
+      "id": "1a7d3528294f4a51a20ceaf376dea246",
+      "type": "mouse_move",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 1121.293643083823
+      },
+      "config": {
+        "x": 100,
+        "y": 10,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "f88ff2d091a048939d7c215fe509c28a",
+      "type": "mouse_click",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 1298.293643083823
+      },
+      "config": {
+        "button": "left",
+        "clicks": 1
+      }
+    },
+    {
+      "id": "90fec5fc58f74ee9ad3582392ee71c68",
+      "type": "mouse_move",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 1715.293643083823
+      },
+      "config": {
+        "x": 20,
+        "y": 280,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "6b9e688770ab40c884063c35f5a07698",
+      "type": "mouse_move",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 1993.293643083823
+      },
+      "config": {
+        "x": 1200,
+        "y": 950,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "8cdd0fa760b442008b9a16e5bd4c1236",
+      "type": "hold_mouse",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 1892.293643083823
+      },
+      "config": {
+        "button": "left"
+      }
+    },
+    {
+      "id": "16b428492a7b44608ceb8fc01b2197f8",
+      "type": "delay",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 1614.293643083823
+      },
+      "config": {
+        "duration_ms": 500
+      }
+    },
+    {
+      "id": "bfe5131650d24a569ddcca3981696b4b",
+      "type": "mouse_move",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 2271.293643083823
+      },
+      "config": {
+        "x": 450,
+        "y": 1000,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "8579ccf6603649018a28453304a048be",
+      "type": "mouse_click",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 2448.293643083823
+      },
+      "config": {
+        "button": "left",
+        "clicks": 1
+      }
+    },
+    {
+      "id": "5c7d871edeb84244ab5d0282e08293d4",
+      "type": "release_mouse",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 2170.293643083823
+      },
+      "config": {
+        "button": "left"
+      }
+    },
+    {
+      "id": "031fda42c27d41cc9d06a536bb13346e",
+      "type": "press_key_combo",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 2587.293643083823
+      },
+      "config": {
+        "modifier_1": "ctrl",
+        "modifier_2": "",
+        "key": "c"
+      }
+    },
+    {
+      "id": "7c9a0d9ce406418a8435ca7dfb5f359c",
+      "type": "mouse_move",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 2865.293643083823
+      },
+      "config": {
+        "x": 2800,
+        "y": 10,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "205d528b304147e592213c29ee1b255b",
+      "type": "delay",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 2764.293643083823
+      },
+      "config": {
+        "duration_ms": 500
+      }
+    },
+    {
+      "id": "bb5a2c4141924a8a8ac50193f5937d76",
+      "type": "mouse_click",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 3042.293643083823
+      },
+      "config": {
+        "button": "left",
+        "clicks": 1
+      }
+    },
+    {
+      "id": "b483247c54734a408b52370aa2000254",
+      "type": "mouse_move",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 3181.293643083823
+      },
+      "config": {
+        "x": 2800,
+        "y": 980,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "dcea4242ea454c4a98b558687a6dda34",
+      "type": "mouse_click",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 3358.293643083823
+      },
+      "config": {
+        "button": "left",
+        "clicks": 1
+      }
+    },
+    {
+      "id": "9dc8cf99443b424a93466343b2a0d3b6",
+      "type": "press_key_combo",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 3497.293643083823
+      },
+      "config": {
+        "modifier_1": "ctrl",
+        "modifier_2": "",
+        "key": "v"
+      }
+    },
+    {
+      "id": "094a9994243c499c82806be439d334d0",
+      "type": "delay",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 3674.293643083823
+      },
+      "config": {
+        "duration_ms": 3000
+      }
+    },
+    {
+      "id": "efa437da3cdd4321bf5513a014fd5519",
+      "type": "mouse_move",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 3775.293643083823
+      },
+      "config": {
+        "x": 3185,
+        "y": 980,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "72ce229ac9074329815695d67a1cdab6",
+      "type": "mouse_click",
+      "position": {
+        "x": -308.9938187181116,
+        "y": 3952.293643083823
+      },
+      "config": {
+        "button": "left",
+        "clicks": 1
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "1a7d3528294f4a51a20ceaf376dea246",
+      "from_port": "next",
+      "to_node": "f88ff2d091a048939d7c215fe509c28a",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "f88ff2d091a048939d7c215fe509c28a",
+      "from_port": "next",
+      "to_node": "f2a5f2aeb3c746cdb41d4f013c4bdc17",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "90fec5fc58f74ee9ad3582392ee71c68",
+      "from_port": "next",
+      "to_node": "8cdd0fa760b442008b9a16e5bd4c1236",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "8cdd0fa760b442008b9a16e5bd4c1236",
+      "from_port": "next",
+      "to_node": "6b9e688770ab40c884063c35f5a07698",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "f2a5f2aeb3c746cdb41d4f013c4bdc17",
+      "from_port": "next",
+      "to_node": "16b428492a7b44608ceb8fc01b2197f8",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "16b428492a7b44608ceb8fc01b2197f8",
+      "from_port": "next",
+      "to_node": "90fec5fc58f74ee9ad3582392ee71c68",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "bfe5131650d24a569ddcca3981696b4b",
+      "from_port": "next",
+      "to_node": "8579ccf6603649018a28453304a048be",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "6b9e688770ab40c884063c35f5a07698",
+      "from_port": "next",
+      "to_node": "5c7d871edeb84244ab5d0282e08293d4",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "5c7d871edeb84244ab5d0282e08293d4",
+      "from_port": "next",
+      "to_node": "bfe5131650d24a569ddcca3981696b4b",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "8579ccf6603649018a28453304a048be",
+      "from_port": "next",
+      "to_node": "031fda42c27d41cc9d06a536bb13346e",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "031fda42c27d41cc9d06a536bb13346e",
+      "from_port": "next",
+      "to_node": "205d528b304147e592213c29ee1b255b",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "205d528b304147e592213c29ee1b255b",
+      "from_port": "next",
+      "to_node": "7c9a0d9ce406418a8435ca7dfb5f359c",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "7c9a0d9ce406418a8435ca7dfb5f359c",
+      "from_port": "next",
+      "to_node": "bb5a2c4141924a8a8ac50193f5937d76",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "b483247c54734a408b52370aa2000254",
+      "from_port": "next",
+      "to_node": "dcea4242ea454c4a98b558687a6dda34",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "dcea4242ea454c4a98b558687a6dda34",
+      "from_port": "next",
+      "to_node": "9dc8cf99443b424a93466343b2a0d3b6",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "bb5a2c4141924a8a8ac50193f5937d76",
+      "from_port": "next",
+      "to_node": "b483247c54734a408b52370aa2000254",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "9dc8cf99443b424a93466343b2a0d3b6",
+      "from_port": "next",
+      "to_node": "094a9994243c499c82806be439d334d0",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "efa437da3cdd4321bf5513a014fd5519",
+      "from_port": "next",
+      "to_node": "72ce229ac9074329815695d67a1cdab6",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "094a9994243c499c82806be439d334d0",
+      "from_port": "next",
+      "to_node": "efa437da3cdd4321bf5513a014fd5519",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "ee2cdacf814342ef88585beb5b4c6133",
+      "from_port": "next",
+      "to_node": "1a7d3528294f4a51a20ceaf376dea246",
+      "to_port": "flow_in"
+    }
+  ]
+}
