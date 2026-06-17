@@ -70,6 +70,15 @@ class WaitRequest(BaseModel):
     seconds: float = 0.1
 
 
+class ActionItem(BaseModel):
+    type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class BatchRequest(BaseModel):
+    actions: list[ActionItem] = Field(default_factory=list)
+
+
 app = FastAPI(title="FlowMacro Scratch Link")
 app.add_middleware(
     CORSMiddleware,
@@ -105,9 +114,8 @@ def normalize_button(button: str) -> str:
     return button
 
 
-def screenshot_as_base64() -> dict[str, Any]:
+def capture_monitor(monitor: dict[str, int]) -> dict[str, Any]:
     with mss.mss() as sct:
-        monitor = sct.monitors[1]
         shot = sct.grab(monitor)
         raw = mss.tools.to_png(shot.rgb, shot.size)
         encoded = base64.b64encode(raw).decode("ascii")
@@ -122,6 +130,101 @@ def screenshot_as_base64() -> dict[str, Any]:
             },
             "imageBase64": encoded,
         }
+
+
+def screenshot_as_base64(screen_number: int | None = None) -> dict[str, Any]:
+    with mss.mss() as sct:
+        monitors = sct.monitors
+        if screen_number is None:
+            monitor = monitors[0]
+        else:
+            if screen_number < 1 or screen_number >= len(monitors):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Screen {screen_number} is unavailable. Valid screens: 1-{len(monitors) - 1}",
+                )
+            monitor = monitors[screen_number]
+    return capture_monitor(monitor)
+
+
+def get_monitor_info(screen_number: int) -> dict[str, int]:
+    with mss.mss() as sct:
+        monitors = sct.monitors
+        if screen_number < 1 or screen_number >= len(monitors):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Screen {screen_number} is unavailable. Valid screens: 1-{len(monitors) - 1}",
+            )
+        monitor = monitors[screen_number]
+        return {
+            "left": monitor["left"],
+            "top": monitor["top"],
+            "width": monitor["width"],
+            "height": monitor["height"],
+        }
+
+
+def execute_action(action_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if action_type == "mouse.move":
+        x = int(payload.get("x", 0))
+        y = int(payload.get("y", 0))
+        duration = max(float(payload.get("duration", 0)), 0)
+        pyautogui.moveTo(x, y, duration=duration)
+        x, y = pyautogui.position()
+        return {"ok": True, "x": x, "y": y}
+
+    if action_type == "mouse.moveBy":
+        dx = int(payload.get("dx", 0))
+        dy = int(payload.get("dy", 0))
+        duration = max(float(payload.get("duration", 0)), 0)
+        pyautogui.move(dx, dy, duration=duration)
+        x, y = pyautogui.position()
+        return {"ok": True, "x": x, "y": y}
+
+    if action_type == "mouse.down":
+        pyautogui.mouseDown(button=normalize_button(str(payload.get("button", "left"))))
+        return {"ok": True}
+
+    if action_type == "mouse.up":
+        pyautogui.mouseUp(button=normalize_button(str(payload.get("button", "left"))))
+        return {"ok": True}
+
+    if action_type == "mouse.click":
+        pyautogui.click(
+            button=normalize_button(str(payload.get("button", "left"))),
+            clicks=max(int(payload.get("clicks", 1)), 1),
+            interval=max(float(payload.get("interval", 0)), 0),
+        )
+        return {"ok": True}
+
+    if action_type == "keyboard.down":
+        pyautogui.keyDown(str(payload.get("key", "")))
+        return {"ok": True}
+
+    if action_type == "keyboard.up":
+        pyautogui.keyUp(str(payload.get("key", "")))
+        return {"ok": True}
+
+    if action_type == "keyboard.press":
+        pyautogui.press(str(payload.get("key", "")))
+        return {"ok": True}
+
+    if action_type == "keyboard.hotkey":
+        keys = payload.get("keys", [])
+        if not keys:
+            raise HTTPException(status_code=400, detail="At least one key is required")
+        pyautogui.hotkey(*keys)
+        return {"ok": True}
+
+    if action_type == "keyboard.write":
+        pyautogui.write(str(payload.get("text", "")), interval=max(float(payload.get("interval", 0)), 0))
+        return {"ok": True}
+
+    if action_type == "wait":
+        time.sleep(max(float(payload.get("seconds", 0)), 0))
+        return {"ok": True}
+
+    raise HTTPException(status_code=400, detail=f"Unsupported buffered action: {action_type}")
 
 
 @app.get("/")
@@ -162,11 +265,29 @@ def get_screen(x_flowmacro_session: str | None = Header(default=None)) -> dict[s
     return screenshot_as_base64()
 
 
+@app.get("/screen/all")
+def get_all_screens(x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
+    require_session(x_flowmacro_session)
+    return screenshot_as_base64()
+
+
+@app.get("/screen/{screen_number}")
+def get_screen_number(screen_number: int, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
+    require_session(x_flowmacro_session)
+    return screenshot_as_base64(screen_number)
+
+
 @app.get("/screen/info")
 def get_screen_info(x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
     require_session(x_flowmacro_session)
     width, height = pyautogui.size()
     return {"width": width, "height": height}
+
+
+@app.get("/screen/info/{screen_number}")
+def get_screen_number_info(screen_number: int, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
+    require_session(x_flowmacro_session)
+    return get_monitor_info(screen_number)
 
 
 @app.get("/mouse")
@@ -209,56 +330,53 @@ def mouse_up(payload: MouseButtonRequest, x_flowmacro_session: str | None = Head
 @app.post("/mouse/click")
 def mouse_click(payload: MouseClickRequest, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
     require_session(x_flowmacro_session)
-    pyautogui.click(
-        button=normalize_button(payload.button),
-        clicks=max(payload.clicks, 1),
-        interval=max(payload.interval, 0),
+    return execute_action(
+        "mouse.click",
+        {"button": payload.button, "clicks": payload.clicks, "interval": payload.interval},
     )
-    return {"ok": True}
 
 
 @app.post("/keyboard/down")
 def key_down(payload: KeyRequest, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
     require_session(x_flowmacro_session)
-    pyautogui.keyDown(payload.key)
-    return {"ok": True}
+    return execute_action("keyboard.down", {"key": payload.key})
 
 
 @app.post("/keyboard/up")
 def key_up(payload: KeyRequest, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
     require_session(x_flowmacro_session)
-    pyautogui.keyUp(payload.key)
-    return {"ok": True}
+    return execute_action("keyboard.up", {"key": payload.key})
 
 
 @app.post("/keyboard/press")
 def key_press(payload: KeyRequest, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
     require_session(x_flowmacro_session)
-    pyautogui.press(payload.key)
-    return {"ok": True}
+    return execute_action("keyboard.press", {"key": payload.key})
 
 
 @app.post("/keyboard/hotkey")
 def hotkey(payload: HotkeyRequest, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
     require_session(x_flowmacro_session)
-    if not payload.keys:
-        raise HTTPException(status_code=400, detail="At least one key is required")
-    pyautogui.hotkey(*payload.keys)
-    return {"ok": True}
+    return execute_action("keyboard.hotkey", {"keys": payload.keys})
 
 
 @app.post("/keyboard/write")
 def write_text(payload: WriteRequest, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
     require_session(x_flowmacro_session)
-    pyautogui.write(payload.text, interval=max(payload.interval, 0))
-    return {"ok": True}
+    return execute_action("keyboard.write", {"text": payload.text, "interval": payload.interval})
 
 
 @app.post("/wait")
 def wait_seconds(payload: WaitRequest, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
     require_session(x_flowmacro_session)
-    time.sleep(max(payload.seconds, 0))
-    return {"ok": True}
+    return execute_action("wait", {"seconds": payload.seconds})
+
+
+@app.post("/batch")
+def run_batch(payload: BatchRequest, x_flowmacro_session: str | None = Header(default=None)) -> dict[str, Any]:
+    require_session(x_flowmacro_session)
+    results = [execute_action(action.type, action.payload) for action in payload.actions]
+    return {"ok": True, "count": len(results), "results": results}
 
 
 def open_cloudflare_tunnel(port: int) -> str | None:

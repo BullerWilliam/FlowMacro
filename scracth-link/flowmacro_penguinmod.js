@@ -9,6 +9,8 @@
       this.sessionId = "__FLOWMACRO_SESSION_ID__";
       this.connected = false;
       this.lastError = "";
+      this.mode = "classic";
+      this.buffer = [];
     }
 
     getInfo() {
@@ -38,18 +40,51 @@
             text: "last error"
           },
           {
+            opcode: "setMode",
+            blockType: Scratch.BlockType.COMMAND,
+            text: "set mode [MODE]",
+            arguments: {
+              MODE: {
+                type: Scratch.ArgumentType.STRING,
+                menu: "runModes",
+                defaultValue: "classic"
+              }
+            }
+          },
+          {
+            opcode: "activateBuffer",
+            blockType: Scratch.BlockType.COMMAND,
+            text: "activate buffer"
+          },
+          {
+            opcode: "clearBuffer",
+            blockType: Scratch.BlockType.COMMAND,
+            text: "clear buffer"
+          },
+          {
             blockType: Scratch.BlockType.LABEL,
             text: "Screen"
           },
           {
             opcode: "getScreenInfo",
             blockType: Scratch.BlockType.REPORTER,
-            text: "screen info"
+            text: "screen [SCREEN] info",
+            arguments: {
+              SCREEN: { type: Scratch.ArgumentType.NUMBER, defaultValue: 1 }
+            }
           },
           {
             opcode: "getScreenCapture",
             blockType: Scratch.BlockType.REPORTER,
-            text: "screen png uri"
+            text: "screen [SCREEN] png uri",
+            arguments: {
+              SCREEN: { type: Scratch.ArgumentType.NUMBER, defaultValue: 1 }
+            }
+          },
+          {
+            opcode: "getAllScreensCapture",
+            blockType: Scratch.BlockType.REPORTER,
+            text: "all screens png uri"
           },
           {
             blockType: Scratch.BlockType.LABEL,
@@ -129,6 +164,7 @@
             arguments: {
               KEY: {
                 type: Scratch.ArgumentType.STRING,
+                menu: "keyboardKeys",
                 defaultValue: "space"
               }
             }
@@ -140,6 +176,7 @@
             arguments: {
               KEY: {
                 type: Scratch.ArgumentType.STRING,
+                menu: "keyboardKeys",
                 defaultValue: "space"
               }
             }
@@ -151,6 +188,7 @@
             arguments: {
               KEY: {
                 type: Scratch.ArgumentType.STRING,
+                menu: "keyboardKeys",
                 defaultValue: "enter"
               }
             }
@@ -158,11 +196,22 @@
           {
             opcode: "hotkey",
             blockType: Scratch.BlockType.COMMAND,
-            text: "press key combo [KEYS]",
+            text: "press key combo [MOD1] [MOD2] [KEY]",
             arguments: {
-              KEYS: {
+              MOD1: {
                 type: Scratch.ArgumentType.STRING,
-                defaultValue: "ctrl,shift,esc"
+                menu: "modifierKeys",
+                defaultValue: "ctrl"
+              },
+              MOD2: {
+                type: Scratch.ArgumentType.STRING,
+                menu: "modifierKeys",
+                defaultValue: "shift"
+              },
+              KEY: {
+                type: Scratch.ArgumentType.STRING,
+                menu: "keyboardKeys",
+                defaultValue: "esc"
               }
             }
           },
@@ -190,6 +239,79 @@
           mouseButtons: {
             acceptReporters: true,
             items: ["left", "middle", "right"]
+          },
+          keyboardKeys: {
+            acceptReporters: true,
+            items: [
+              "enter",
+              "space",
+              "backspace",
+              "tab",
+              "escape",
+              "up",
+              "down",
+              "left",
+              "right",
+              "shift",
+              "ctrl",
+              "alt",
+              "a",
+              "b",
+              "c",
+              "d",
+              "e",
+              "f",
+              "g",
+              "h",
+              "i",
+              "j",
+              "k",
+              "l",
+              "m",
+              "n",
+              "o",
+              "p",
+              "q",
+              "r",
+              "s",
+              "t",
+              "u",
+              "v",
+              "w",
+              "x",
+              "y",
+              "z",
+              "0",
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "f1",
+              "f2",
+              "f3",
+              "f4",
+              "f5",
+              "f6",
+              "f7",
+              "f8",
+              "f9",
+              "f10",
+              "f11",
+              "f12"
+            ]
+          },
+          modifierKeys: {
+            acceptReporters: true,
+            items: ["none", "ctrl", "shift", "alt", "win"]
+          },
+          runModes: {
+            acceptReporters: true,
+            items: ["classic", "buffer"]
           }
         }
       };
@@ -232,24 +354,47 @@
       return this.lastError;
     }
 
-    async getScreenInfo() {
-      return this.readAsJsonString("/screen/info");
+    setMode(args) {
+      const mode = String(args.MODE || "classic").trim().toLowerCase();
+      this.mode = mode === "buffer" ? "buffer" : "classic";
     }
 
-    async getScreenCapture() {
+    async activateBuffer() {
+      if (!this.buffer.length) {
+        return;
+      }
+
+      const actions = this.buffer.slice();
       try {
-        const data = await this.request("/screen");
+        await this.request("/batch", {
+          method: "POST",
+          body: { actions }
+        });
+        this.buffer = [];
         this.connected = true;
         this.lastError = "";
-        if (!data.imageBase64) {
-          return "";
-        }
-        return `data:image/png;base64,${data.imageBase64}`;
       } catch (error) {
         this.connected = false;
         this.lastError = String(error);
-        return "";
       }
+    }
+
+    clearBuffer() {
+      this.buffer = [];
+    }
+
+    async getScreenInfo(args) {
+      const screenNumber = Math.max(1, Math.floor(Cast.toNumber(args.SCREEN)));
+      return this.readAsJsonString(`/screen/info/${screenNumber}`);
+    }
+
+    async getScreenCapture(args) {
+      const screenNumber = Math.max(1, Math.floor(Cast.toNumber(args.SCREEN)));
+      return this.readAsPngUri(`/screen/${screenNumber}`);
+    }
+
+    async getAllScreensCapture() {
+      return this.readAsPngUri("/screen/all");
     }
 
     async getMouse() {
@@ -257,76 +402,75 @@
     }
 
     async moveMouseTo(args) {
-      await this.safeCommand("/mouse/move", {
+      await this.runAction("/mouse/move", {
         x: Cast.toNumber(args.X),
         y: Cast.toNumber(args.Y),
         duration: Cast.toNumber(args.SECONDS)
-      });
+      }, "mouse.move");
     }
 
     async moveMouseBy(args) {
-      await this.safeCommand("/mouse/move-by", {
+      await this.runAction("/mouse/move-by", {
         dx: Cast.toNumber(args.DX),
         dy: Cast.toNumber(args.DY),
         duration: Cast.toNumber(args.SECONDS)
-      });
+      }, "mouse.moveBy");
     }
 
     async mouseDown(args) {
-      await this.safeCommand("/mouse/down", {
+      await this.runAction("/mouse/down", {
         button: String(args.BUTTON || "left").toLowerCase()
-      });
+      }, "mouse.down");
     }
 
     async mouseUp(args) {
-      await this.safeCommand("/mouse/up", {
+      await this.runAction("/mouse/up", {
         button: String(args.BUTTON || "left").toLowerCase()
-      });
+      }, "mouse.up");
     }
 
     async mouseClick(args) {
-      await this.safeCommand("/mouse/click", {
+      await this.runAction("/mouse/click", {
         button: String(args.BUTTON || "left").toLowerCase(),
         clicks: Math.max(1, Cast.toNumber(args.CLICKS))
-      });
+      }, "mouse.click");
     }
 
     async keyDown(args) {
-      await this.safeCommand("/keyboard/down", {
+      await this.runAction("/keyboard/down", {
         key: String(args.KEY || "").trim().toLowerCase()
-      });
+      }, "keyboard.down");
     }
 
     async keyUp(args) {
-      await this.safeCommand("/keyboard/up", {
+      await this.runAction("/keyboard/up", {
         key: String(args.KEY || "").trim().toLowerCase()
-      });
+      }, "keyboard.up");
     }
 
     async keyPress(args) {
-      await this.safeCommand("/keyboard/press", {
+      await this.runAction("/keyboard/press", {
         key: String(args.KEY || "").trim().toLowerCase()
-      });
+      }, "keyboard.press");
     }
 
     async hotkey(args) {
-      const keys = String(args.KEYS || "")
-        .split(",")
-        .map(part => part.trim().toLowerCase())
-        .filter(Boolean);
-      await this.safeCommand("/keyboard/hotkey", { keys });
+      const keys = [args.MOD1, args.MOD2, args.KEY]
+        .map(part => String(part || "").trim().toLowerCase())
+        .filter(part => part && part !== "none");
+      await this.runAction("/keyboard/hotkey", { keys }, "keyboard.hotkey");
     }
 
     async typeText(args) {
-      await this.safeCommand("/keyboard/write", {
+      await this.runAction("/keyboard/write", {
         text: String(args.TEXT || "")
-      });
+      }, "keyboard.write");
     }
 
     async waitSeconds(args) {
-      await this.safeCommand("/wait", {
+      await this.runAction("/wait", {
         seconds: Cast.toNumber(args.SECONDS)
-      });
+      }, "wait");
     }
 
     async readAsJsonString(path) {
@@ -335,6 +479,22 @@
         this.connected = true;
         this.lastError = "";
         return JSON.stringify(data);
+      } catch (error) {
+        this.connected = false;
+        this.lastError = String(error);
+        return "";
+      }
+    }
+
+    async readAsPngUri(path) {
+      try {
+        const data = await this.request(path);
+        this.connected = true;
+        this.lastError = "";
+        if (!data.imageBase64) {
+          return "";
+        }
+        return `data:image/png;base64,${data.imageBase64}`;
       } catch (error) {
         this.connected = false;
         this.lastError = String(error);
@@ -354,6 +514,14 @@
         this.connected = false;
         this.lastError = String(error);
       }
+    }
+
+    async runAction(path, body, actionType) {
+      if (this.mode === "buffer") {
+        this.buffer.push({ type: actionType, payload: body });
+        return;
+      }
+      await this.safeCommand(path, body);
     }
   }
 
