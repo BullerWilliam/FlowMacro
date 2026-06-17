@@ -25,9 +25,8 @@ pyautogui.PAUSE = 0
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXTENSION_FILE = os.path.join(HERE, "flowmacro_penguinmod.js")
-GENERATED_DIR = os.path.join(HERE, "generated")
 SESSION_ID = uuid.uuid4().hex
-GENERATED_EXTENSION_FILE = os.path.join(GENERATED_DIR, f"flowmacro_penguinmod_{SESSION_ID}.js")
+EXTENSION_TEMPLATE = ""
 
 MOUSE_BUTTONS = {"left", "middle", "right"}
 
@@ -81,23 +80,17 @@ app.add_middleware(
 )
 
 
-def ensure_generated_extension_template() -> None:
-    os.makedirs(GENERATED_DIR, exist_ok=True)
-    template = load_extension_template()
-    with open(GENERATED_EXTENSION_FILE, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(template.replace("__FLOWMACRO_SESSION_ID__", SESSION_ID))
-
-
 def load_extension_template() -> str:
     with open(EXTENSION_FILE, "r", encoding="utf-8") as handle:
         return handle.read()
 
 
 def build_extension_script(base_url: str) -> str:
-    template_path = GENERATED_EXTENSION_FILE if os.path.isfile(GENERATED_EXTENSION_FILE) else EXTENSION_FILE
-    with open(template_path, "r", encoding="utf-8") as handle:
-        template = handle.read()
-    return template.replace("__FLOWMACRO_BASE_URL__", base_url.rstrip("/"))
+    return (
+        EXTENSION_TEMPLATE
+        .replace("__FLOWMACRO_SESSION_ID__", SESSION_ID)
+        .replace("__FLOWMACRO_BASE_URL__", base_url.rstrip("/"))
+    )
 
 
 def require_session(x_flowmacro_session: str | None = Header(default=None)) -> None:
@@ -400,6 +393,8 @@ def ensure_cloudflared() -> str | None:
 
 
 def main() -> None:
+    global EXTENSION_TEMPLATE
+
     parser = argparse.ArgumentParser(description="Host a local API for the PenguinMod extension.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
@@ -410,7 +405,7 @@ def main() -> None:
         help="Expose the local API over Cloudflare Tunnel if possible.",
     )
     args = parser.parse_args()
-    ensure_generated_extension_template()
+    EXTENSION_TEMPLATE = load_extension_template()
 
     public_url = None
     if args.tunnel == "cloudflare":
