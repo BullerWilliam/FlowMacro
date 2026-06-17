@@ -5,7 +5,8 @@
 
   class FlowMacroLink {
     constructor() {
-      this.baseUrl = "http://127.0.0.1:8765";
+      this.baseUrl = "__FLOWMACRO_BASE_URL__";
+      this.sessionId = "__FLOWMACRO_SESSION_ID__";
       this.connected = false;
       this.lastError = "";
     }
@@ -18,15 +19,13 @@
         color2: "#1c5d8b",
         blocks: [
           {
+            blockType: Scratch.BlockType.LABEL,
+            text: "Connection"
+          },
+          {
             opcode: "connect",
             blockType: Scratch.BlockType.COMMAND,
-            text: "connect to [URL]",
-            arguments: {
-              URL: {
-                type: Scratch.ArgumentType.STRING,
-                defaultValue: "http://127.0.0.1:8765"
-              }
-            }
+            text: "connect"
           },
           {
             opcode: "isConnected",
@@ -39,6 +38,10 @@
             text: "last error"
           },
           {
+            blockType: Scratch.BlockType.LABEL,
+            text: "Screen"
+          },
+          {
             opcode: "getScreenInfo",
             blockType: Scratch.BlockType.REPORTER,
             text: "screen info"
@@ -46,7 +49,11 @@
           {
             opcode: "getScreenCapture",
             blockType: Scratch.BlockType.REPORTER,
-            text: "screen capture json"
+            text: "screen png uri"
+          },
+          {
+            blockType: Scratch.BlockType.LABEL,
+            text: "Mouse State"
           },
           {
             opcode: "getMouse",
@@ -54,13 +61,27 @@
             text: "mouse position"
           },
           {
-            opcode: "moveMouse",
+            blockType: Scratch.BlockType.LABEL,
+            text: "Mouse Actions"
+          },
+          {
+            opcode: "moveMouseTo",
             blockType: Scratch.BlockType.COMMAND,
-            text: "move mouse to x: [X] y: [Y] in [SECONDS] secs",
+            text: "teleport mouse to x: [X] y: [Y] in [SECONDS] secs",
             arguments: {
               X: { type: Scratch.ArgumentType.NUMBER, defaultValue: 200 },
               Y: { type: Scratch.ArgumentType.NUMBER, defaultValue: 200 },
               SECONDS: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 }
+            }
+          },
+          {
+            opcode: "moveMouseBy",
+            blockType: Scratch.BlockType.COMMAND,
+            text: "move mouse by dx: [DX] dy: [DY] in [SECONDS] secs",
+            arguments: {
+              DX: { type: Scratch.ArgumentType.NUMBER, defaultValue: 50 },
+              DY: { type: Scratch.ArgumentType.NUMBER, defaultValue: 50 },
+              SECONDS: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0.2 }
             }
           },
           {
@@ -96,6 +117,10 @@
               },
               CLICKS: { type: Scratch.ArgumentType.NUMBER, defaultValue: 1 }
             }
+          },
+          {
+            blockType: Scratch.BlockType.LABEL,
+            text: "Keyboard"
           },
           {
             opcode: "keyDown",
@@ -174,7 +199,8 @@
       const response = await fetch(`${this.baseUrl}${path}`, {
         method: options.method || "GET",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "X-FlowMacro-Session": this.sessionId
         },
         body: options.body ? JSON.stringify(options.body) : undefined
       });
@@ -187,9 +213,7 @@
       return response.json();
     }
 
-    async connect(args) {
-      const url = String(args.URL || "").trim().replace(/\/+$/, "");
-      this.baseUrl = url || this.baseUrl;
+    async connect() {
       this.lastError = "";
       try {
         await this.request("/health");
@@ -213,17 +237,37 @@
     }
 
     async getScreenCapture() {
-      return this.readAsJsonString("/screen");
+      try {
+        const data = await this.request("/screen");
+        this.connected = true;
+        this.lastError = "";
+        if (!data.imageBase64) {
+          return "";
+        }
+        return `data:image/png;base64,${data.imageBase64}`;
+      } catch (error) {
+        this.connected = false;
+        this.lastError = String(error);
+        return "";
+      }
     }
 
     async getMouse() {
       return this.readAsJsonString("/mouse");
     }
 
-    async moveMouse(args) {
+    async moveMouseTo(args) {
       await this.safeCommand("/mouse/move", {
         x: Cast.toNumber(args.X),
         y: Cast.toNumber(args.Y),
+        duration: Cast.toNumber(args.SECONDS)
+      });
+    }
+
+    async moveMouseBy(args) {
+      await this.safeCommand("/mouse/move-by", {
+        dx: Cast.toNumber(args.DX),
+        dy: Cast.toNumber(args.DY),
         duration: Cast.toNumber(args.SECONDS)
       });
     }
