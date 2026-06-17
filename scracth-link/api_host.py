@@ -249,23 +249,8 @@ def open_cloudflare_tunnel(port: int) -> str | None:
     return None
 
 
-def open_ngrok_tunnel(port: int) -> str | None:
-    with suppress(ImportError):
-        from pyngrok import ngrok
-
-        tunnel = ngrok.connect(port, "http")
-        return tunnel.public_url
-    return None
-
-
-def start_tunnel(port: int, mode: str) -> str | None:
-    if mode in {"cloudflare", "auto"}:
-        url = open_cloudflare_tunnel(port)
-        if url:
-            return url
-    if mode in {"ngrok", "auto"}:
-        return open_ngrok_tunnel(port)
-    return None
+def start_tunnel(port: int) -> str | None:
+    return open_cloudflare_tunnel(port)
 
 
 def main() -> None:
@@ -274,15 +259,15 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
         "--tunnel",
-        choices=["auto", "cloudflare", "ngrok", "none"],
-        default="auto",
-        help="Expose the local API over the internet if possible.",
+        choices=["cloudflare", "none"],
+        default="cloudflare",
+        help="Expose the local API over Cloudflare Tunnel if possible.",
     )
     args = parser.parse_args()
 
     public_url = None
-    if args.tunnel != "none":
-        public_url = start_tunnel(args.port, args.tunnel)
+    if args.tunnel == "cloudflare":
+        public_url = start_tunnel(args.port)
 
     print(f"Local API: http://{args.host}:{args.port}")
     print(f"Extension URL: http://{args.host}:{args.port}/extension.js")

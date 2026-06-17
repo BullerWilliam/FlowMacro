@@ -3,4 +3,3 @@ pyautogui>=0.9
 mss>=10.0
 fastapi>=0.116
 uvicorn>=0.35
-pyngrok>=7.2
