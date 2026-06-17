@@ -1,0 +1,117 @@
+{
+  "file_type": "FlowMacroProject",
+  "version": 1,
+  "app": "FlowMacro Studio",
+  "nodes": [
+    {
+      "id": "ee2cdacf814342ef88585beb5b4c6133",
+      "type": "start",
+      "position": {
+        "x": -90.46984306737868,
+        "y": 915.0378413100586
+      },
+      "config": {}
+    },
+    {
+      "id": "f2a5f2aeb3c746cdb41d4f013c4bdc17",
+      "type": "press_key_combo",
+      "position": {
+        "x": -90.46984306737868,
+        "y": 1331.0378413100586
+      },
+      "config": {
+        "modifier_1": "win",
+        "modifier_2": "shift",
+        "key": "s"
+      }
+    },
+    {
+      "id": "1a7d3528294f4a51a20ceaf376dea246",
+      "type": "mouse_move",
+      "position": {
+        "x": -90.46984306737868,
+        "y": 1015.0378413100586
+      },
+      "config": {
+        "x": 100,
+        "y": 10,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "f88ff2d091a048939d7c215fe509c28a",
+      "type": "mouse_click",
+      "position": {
+        "x": -90.46984306737868,
+        "y": 1192.0378413100586
+      },
+      "config": {
+        "button": "left",
+        "clicks": 1
+      }
+    },
+    {
+      "id": "90fec5fc58f74ee9ad3582392ee71c68",
+      "type": "mouse_move",
+      "position": {
+        "x": -90.46984306737868,
+        "y": 1508.0378413100586
+      },
+      "config": {
+        "x": 20,
+        "y": 280,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "6b9e688770ab40c884063c35f5a07698",
+      "type": "mouse_move",
+      "position": {
+        "x": -11.718357154010132,
+        "y": 1960.2320482026932
+      },
+      "config": {
+        "x": 1200,
+        "y": 950,
+        "duration_ms": 100
+      }
+    },
+    {
+      "id": "4e9986ecb75d4263aab381d81443e71b",
+      "type": "hold_key",
+      "position": {
+        "x": 24.837935394139404,
+        "y": 1729.4562422585955
+      },
+      "config": {
+        "key": "shift"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "ee2cdacf814342ef88585beb5b4c6133",
+      "from_port": "next",
+      "to_node": "1a7d3528294f4a51a20ceaf376dea246",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "1a7d3528294f4a51a20ceaf376dea246",
+      "from_port": "next",
+      "to_node": "f88ff2d091a048939d7c215fe509c28a",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "f88ff2d091a048939d7c215fe509c28a",
+      "from_port": "next",
+      "to_node": "f2a5f2aeb3c746cdb41d4f013c4bdc17",
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": "f2a5f2aeb3c746cdb41d4f013c4bdc17",
+      "from_port": "next",
+      "to_node": "90fec5fc58f74ee9ad3582392ee71c68",
+      "to_port": "flow_in"
+    }
+  ]
+}

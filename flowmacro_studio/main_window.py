@@ -46,7 +46,7 @@ from .canvas import NODE_MIME_TYPE, NodeItem, NodeScene, NodeView
 from .inspector import InspectorPanel
 from .models import ConnectionModel, GraphModel, NodeDefinition, NodeModel
 from .node_definitions import build_node_catalog
-from .runtime import GraphRuntime, _release_all_held_keys
+from .runtime import GraphRuntime, _release_all_held_inputs
 from .storage import load_graph, save_graph
 from .styles import WINDOW_STYLESHEET
 
@@ -1198,7 +1198,7 @@ class MainWindow(QMainWindow):
     def _handle_run_finished(self) -> None:
         self.stage_preview.run_button.setEnabled(True)
         self.stage_preview.stop_button.setEnabled(False)
-        _release_all_held_keys()
+        _release_all_held_inputs()
 
     def _refresh_node_shelf(self) -> None:
         return
@@ -1209,7 +1209,7 @@ class MainWindow(QMainWindow):
         if self.execution_thread is not None and self.execution_thread.isRunning():
             self.execution_thread.stop()
             self.execution_thread.wait(1000)
-        _release_all_held_keys()
+        _release_all_held_inputs()
         if not self.confirm_discard_changes():
             event.ignore()
             return

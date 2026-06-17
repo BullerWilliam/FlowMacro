@@ -772,6 +772,34 @@ def build_node_catalog() -> dict[str, NodeDefinition]:
             ],
         ),
         NodeDefinition(
+            type_id="hold_mouse",
+            title="Hold Mouse",
+            category="Input",
+            description="Start holding a mouse button until released.",
+            color="#FFB454",
+            inputs=[
+                PortDefinition("flow_in", "Run", "flow", False),
+            ],
+            outputs=[PortDefinition("next", "Next", "flow", True)],
+            config_fields=[
+                ConfigField("button", "Button", "choice", "left", choices=["left", "right", "middle"]),
+            ],
+        ),
+        NodeDefinition(
+            type_id="release_mouse",
+            title="Release Mouse",
+            category="Input",
+            description="Stop holding a previously held mouse button.",
+            color="#FFB454",
+            inputs=[
+                PortDefinition("flow_in", "Run", "flow", False),
+            ],
+            outputs=[PortDefinition("next", "Next", "flow", True)],
+            config_fields=[
+                ConfigField("button", "Button", "choice", "left", choices=["left", "right", "middle"]),
+            ],
+        ),
+        NodeDefinition(
             type_id="press_key",
             title="Press Key",
             category="Input",

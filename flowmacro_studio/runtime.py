@@ -15,14 +15,17 @@ from .models import ConnectionModel, GraphModel, NodeDefinition, NodeModel
 
 
 _HELD_KEYS: set[str] = set()
-_HELD_KEYS_LOCK = threading.Lock()
+_HELD_MOUSE_BUTTONS: set[str] = set()
+_HELD_INPUTS_LOCK = threading.Lock()
 
 
-def _release_all_held_keys() -> None:
-    with _HELD_KEYS_LOCK:
+def _release_all_held_inputs() -> None:
+    with _HELD_INPUTS_LOCK:
         keys = list(_HELD_KEYS)
         _HELD_KEYS.clear()
-    if not keys:
+        buttons = list(_HELD_MOUSE_BUTTONS)
+        _HELD_MOUSE_BUTTONS.clear()
+    if not keys and not buttons:
         return
     try:
         import pyautogui
@@ -33,11 +36,16 @@ def _release_all_held_keys() -> None:
                 pyautogui.keyUp(key)
             except Exception:
                 continue
+        for button in reversed(buttons):
+            try:
+                pyautogui.mouseUp(button=button)
+            except Exception:
+                continue
     except Exception:
         return
 
 
-atexit.register(_release_all_held_keys)
+atexit.register(_release_all_held_inputs)
 
 
 class GraphRuntime:
@@ -95,9 +103,11 @@ class GraphRuntime:
                 self._walk(node.node_id)
             self.log("FlowMacro Studio runtime finished.")
         finally:
-            released = self._release_held_keys()
-            if released:
-                self.log(f"[Keyboard] Released {released} held key(s).")
+            released_keys, released_buttons = self._release_held_inputs()
+            if released_keys:
+                self.log(f"[Keyboard] Released {released_keys} held key(s).")
+            if released_buttons:
+                self.log(f"[Mouse] Released {released_buttons} held button(s).")
 
     def _walk(self, node_id: str) -> None:
         if self.should_stop():
@@ -331,6 +341,26 @@ class GraphRuntime:
             pyautogui.click(button=button, clicks=clicks)
             self.outputs_cache[node.node_id] = {}
             self.log(f"[Mouse Click] Clicked {button} {clicks} time(s).")
+            return ["next"]
+
+        if node.type_id == "hold_mouse":
+            import pyautogui
+
+            pyautogui.FAILSAFE = True
+            button = str(self._value_for(node, "button", "left"))
+            self._hold_mouse_button(pyautogui, button)
+            self.outputs_cache[node.node_id] = {}
+            self.log(f"[Hold Mouse] Holding {button}.")
+            return ["next"]
+
+        if node.type_id == "release_mouse":
+            import pyautogui
+
+            pyautogui.FAILSAFE = True
+            button = str(self._value_for(node, "button", "left"))
+            released = self._release_mouse_button(pyautogui, button)
+            self.outputs_cache[node.node_id] = {}
+            self.log(f"[Release Mouse] {'Released' if released else 'Skipped'} {button}.")
             return ["next"]
 
         if node.type_id == "press_key":
@@ -789,7 +819,7 @@ class GraphRuntime:
         normalized = key.strip()
         if not normalized:
             raise RuntimeError("Hold Key needs a key.")
-        with _HELD_KEYS_LOCK:
+        with _HELD_INPUTS_LOCK:
             if normalized in _HELD_KEYS:
                 return
             pyautogui_module.keyDown(normalized)
@@ -799,19 +829,42 @@ class GraphRuntime:
         normalized = key.strip()
         if not normalized:
             raise RuntimeError("Release Key needs a key.")
-        with _HELD_KEYS_LOCK:
+        with _HELD_INPUTS_LOCK:
             if normalized not in _HELD_KEYS:
                 return False
             pyautogui_module.keyUp(normalized)
             _HELD_KEYS.remove(normalized)
             return True
 
-    def _release_held_keys(self) -> int:
-        with _HELD_KEYS_LOCK:
+    def _hold_mouse_button(self, pyautogui_module, button: str) -> None:
+        normalized = button.strip().lower()
+        if not normalized:
+            raise RuntimeError("Hold Mouse needs a button.")
+        with _HELD_INPUTS_LOCK:
+            if normalized in _HELD_MOUSE_BUTTONS:
+                return
+            pyautogui_module.mouseDown(button=normalized)
+            _HELD_MOUSE_BUTTONS.add(normalized)
+
+    def _release_mouse_button(self, pyautogui_module, button: str) -> bool:
+        normalized = button.strip().lower()
+        if not normalized:
+            raise RuntimeError("Release Mouse needs a button.")
+        with _HELD_INPUTS_LOCK:
+            if normalized not in _HELD_MOUSE_BUTTONS:
+                return False
+            pyautogui_module.mouseUp(button=normalized)
+            _HELD_MOUSE_BUTTONS.remove(normalized)
+            return True
+
+    def _release_held_inputs(self) -> tuple[int, int]:
+        with _HELD_INPUTS_LOCK:
             keys = list(_HELD_KEYS)
             _HELD_KEYS.clear()
-        if not keys:
-            return 0
+            buttons = list(_HELD_MOUSE_BUTTONS)
+            _HELD_MOUSE_BUTTONS.clear()
+        if not keys and not buttons:
+            return (0, 0)
         try:
             import pyautogui
 
@@ -821,6 +874,11 @@ class GraphRuntime:
                     pyautogui.keyUp(key)
                 except Exception:
                     continue
+            for button in reversed(buttons):
+                try:
+                    pyautogui.mouseUp(button=button)
+                except Exception:
+                    continue
         except Exception:
-            return len(keys)
-        return len(keys)
+            return (len(keys), len(buttons))
+        return (len(keys), len(buttons))
