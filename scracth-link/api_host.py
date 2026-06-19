@@ -29,6 +29,13 @@ SESSION_ID = uuid.uuid4().hex
 EXTENSION_TEMPLATE = ""
 
 MOUSE_BUTTONS = {"left", "middle", "right"}
+KEY_ALIASES = {
+    "windows": "win",
+    "meta": "win",
+    "super": "win",
+    "command": "command",
+    "cmd": "command",
+}
 
 
 class MouseMoveRequest(BaseModel):
@@ -112,6 +119,10 @@ def normalize_button(button: str) -> str:
     if button not in MOUSE_BUTTONS:
         raise HTTPException(status_code=400, detail=f"Unsupported mouse button: {button}")
     return button
+
+
+def normalize_key(key: str) -> str:
+    return KEY_ALIASES.get(key.lower().strip(), key.lower().strip())
 
 
 def capture_monitor(monitor: dict[str, int]) -> dict[str, Any]:
@@ -198,19 +209,19 @@ def execute_action(action_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True}
 
     if action_type == "keyboard.down":
-        pyautogui.keyDown(str(payload.get("key", "")))
+        pyautogui.keyDown(normalize_key(str(payload.get("key", ""))))
         return {"ok": True}
 
     if action_type == "keyboard.up":
-        pyautogui.keyUp(str(payload.get("key", "")))
+        pyautogui.keyUp(normalize_key(str(payload.get("key", ""))))
         return {"ok": True}
 
     if action_type == "keyboard.press":
-        pyautogui.press(str(payload.get("key", "")))
+        pyautogui.press(normalize_key(str(payload.get("key", ""))))
         return {"ok": True}
 
     if action_type == "keyboard.hotkey":
-        keys = payload.get("keys", [])
+        keys = [normalize_key(str(key)) for key in payload.get("keys", [])]
         if not keys:
             raise HTTPException(status_code=400, detail="At least one key is required")
         pyautogui.hotkey(*keys)

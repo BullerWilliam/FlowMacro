@@ -30,6 +30,17 @@
             text: "connect"
           },
           {
+            opcode: "changeConnectionLink",
+            blockType: Scratch.BlockType.COMMAND,
+            text: "change connection link to [LINK]",
+            arguments: {
+              LINK: {
+                type: Scratch.ArgumentType.STRING,
+                defaultValue: "__FLOWMACRO_BASE_URL__"
+              }
+            }
+          },
+          {
             opcode: "isConnected",
             blockType: Scratch.BlockType.BOOLEAN,
             text: "connected?"
@@ -154,6 +165,22 @@
             }
           },
           {
+            opcode: "mouseMultiClick",
+            blockType: Scratch.BlockType.COMMAND,
+            text: "[COUNT] click mouse [BUTTON]",
+            arguments: {
+              COUNT: {
+                type: Scratch.ArgumentType.STRING,
+                menu: "multiClickCounts",
+                defaultValue: "double"
+              },
+              BUTTON: {
+                type: Scratch.ArgumentType.STRING,
+                menu: "mouseButtons"
+              }
+            }
+          },
+          {
             blockType: Scratch.BlockType.LABEL,
             text: "Keyboard"
           },
@@ -240,6 +267,10 @@
             acceptReporters: true,
             items: ["left", "middle", "right"]
           },
+          multiClickCounts: {
+            acceptReporters: true,
+            items: ["double", "triple"]
+          },
           keyboardKeys: {
             acceptReporters: true,
             items: [
@@ -255,6 +286,7 @@
               "shift",
               "ctrl",
               "alt",
+              "win",
               "a",
               "b",
               "c",
@@ -335,12 +367,69 @@
       return response.json();
     }
 
+    normalizeConnectionLink(link) {
+      const trimmed = String(link || "").trim();
+      if (!trimmed) {
+        throw new Error("Connection link is required");
+      }
+
+      const withoutTrailingSlash = trimmed.replace(/\/+$/, "");
+      const extensionMatch = withoutTrailingSlash.match(/^(https?:\/\/.+)\/extension\/[^/]+\.js$/i);
+      if (extensionMatch) {
+        return extensionMatch[1];
+      }
+      return withoutTrailingSlash;
+    }
+
+    async loadConnectionInfo(link) {
+      const baseUrl = this.normalizeConnectionLink(link);
+      const response = await fetch(baseUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.sessionId) {
+        throw new Error("Host did not return a sessionId");
+      }
+
+      return {
+        baseUrl,
+        sessionId: String(data.sessionId)
+      };
+    }
+
     async connect() {
       this.lastError = "";
       try {
         await this.request("/health");
         this.connected = true;
       } catch (error) {
+        this.connected = false;
+        this.lastError = String(error);
+      }
+    }
+
+    async changeConnectionLink(args) {
+      const previousBaseUrl = this.baseUrl;
+      const previousSessionId = this.sessionId;
+      this.lastError = "";
+      try {
+        const connection = await this.loadConnectionInfo(args.LINK);
+        this.baseUrl = connection.baseUrl;
+        this.sessionId = connection.sessionId;
+        await this.request("/health");
+        this.connected = true;
+      } catch (error) {
+        this.baseUrl = previousBaseUrl;
+        this.sessionId = previousSessionId;
         this.connected = false;
         this.lastError = String(error);
       }
@@ -433,6 +522,15 @@
       await this.runAction("/mouse/click", {
         button: String(args.BUTTON || "left").toLowerCase(),
         clicks: Math.max(1, Cast.toNumber(args.CLICKS))
+      }, "mouse.click");
+    }
+
+    async mouseMultiClick(args) {
+      const countName = String(args.COUNT || "double").trim().toLowerCase();
+      const clicks = countName === "triple" ? 3 : 2;
+      await this.runAction("/mouse/click", {
+        button: String(args.BUTTON || "left").toLowerCase(),
+        clicks
       }, "mouse.click");
     }
 
